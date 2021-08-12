@@ -2,7 +2,7 @@ This minecraft proxy proxies client connections (this project is NOT meaned for 
 
 So this means that you can now play with those accounts without a new launcher or mods. The entire project is open source and licensed under MIT.
 
-# Using
+# How to use
 It is pretty simple to use.
 
 1. You select your authentication server. It can be cracked, mojang, microsoft, an alt server etc.
