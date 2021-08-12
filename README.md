@@ -18,7 +18,11 @@ And will decrypt any packet from the destination server and encrypt it again for
 
 On the LAN and Host-only type the proxy server is Cracked meaning it will not encrypt the packets going to the minecraft client.
 
+# Screenshot
 
+![Altening on this proxy](screenshots/mc-proxy-altening.PNG?raw=true "MC altneing on mc proxy")
+
+Check the screenshots directory for more screenshots
 
 # Installing
 
