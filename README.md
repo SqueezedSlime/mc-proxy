@@ -52,4 +52,10 @@ There are three ways to install it (see https://github.com/SqueezedSlime/mc-prox
     Click the electron executable in the root folder to start the app.
 
 
-# Using
+# About the proxy and difference between temporary ALTS (one from third-party sites) and permanent ALTS (one bought on minecraft.net)
+
+Play using ALTS on your own risk, you do not own those accounts and they can be removed anytime. To get a legit ALT, buy one from minecraft.net (on all other sites, your alt is never 100% permanent). Anyway playing with these alts can be still fun. With this proxy you also stay away from any malware because your chrome sandboxes the website and this project is completely open source (I also have verified the websites, they do not contain malware ;-)). you don't have to use the alts neither. You can also use the proxy to play cracked servers or login to a mojang account and let your friend play on your account safely. Or if you just want to decrypt packets because this proxy gives you the 128-bits AES shared secret (The chiper is AES-128-CFB8 enabled after encryption response from client), which was never possible in the normal client without installing unecessary mods (which also requires Forge). I would NOT recommend using ALTS to hack on any server because that is unfair, just use them to play for fun.
+
+Also the authenticator of the alt servers do not contain malware, otherwise people would report it and nobody would use those sites. But they are very popular. However, while they can have no malware, they can still possibly steal your account (temporarily). This is because how an alt authenticator works, it redirects any authentication request from the launcher to their server (so maybe including your normal mojang authentication requests). This program never redirects any request nor edit the host file or install self signed certificates. It will proxy your minecraft connection instead by joining an another server.
+
+This program does not need administrator/root permission. The windows setup program may ask for admin permissions to install it in the programs directory. If you don't want to give that permission, you can also download the zip file instead.
