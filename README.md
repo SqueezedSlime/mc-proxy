@@ -24,7 +24,7 @@ On the LAN and Host-only type the proxy server is Cracked meaning it will not en
 
 Check the screenshots directory for more screenshots
 
-# Installing
+# Install
 
 There are three ways to install it (see https://github.com/SqueezedSlime/mc-proxy/releases/tag/1.0.0), the project does not require any dependency.
 
