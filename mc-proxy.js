@@ -1,4 +1,3 @@
-//Made by Reindert Pelsma
 const { Buffer } = require('buffer');
 const net = require('net');
 const crypto = require('crypto');
