@@ -1,0 +1,53 @@
+<html>
+    <head>
+        <link rel="stylesheet" type="text/css" href="index.css" />
+    </head>
+    <body>
+        <div class="container">
+            <label for="authentication_type">Authentication server:</label>
+            <select name="authentication_type" id="authentication_type" onchange="setAuthServer(this.value)" value="mojang">
+                <option value="mojang">Mojang</option>
+                <option value="microsoft">Microsoft</option>
+                <option value="cracked">Cracked</option>
+                <option value="altening">Altening</option>
+                <option value="easymc">EasyMC</option>
+                <option value="mcleaks">MCLeaks</option>
+                <option value="token">Access token</option>
+            </select>
+            <div id="mc_credentials">
+                <div id="mc_token_block" style="display: none;">
+                    <label for="mc_token">Access token</label>
+                    <input id="mc_token" type="text" placeholder="Mojang JWT access token" />
+                </div>
+                <label id="mc_credentials_name_label" for="mc_credentials_name">Username/e-mail</label>
+                <input id="mc_credentials_name" name="mc_credentials_name" type="text" placeholder="Your username/e-mail" />
+                <div id="mc_credentials_password_block">
+                    <label for="mc_credentials_password">Password</label>
+                    <input id="mc_credentials_password" name="mc_credentials_password" type="password" placeholder="Your mojang password" />
+                </div>
+            </div>
+            <label for="server_type">Proxy server type</label>
+            <select name="server_type" id="server_type" onchange="setServerType(this.value)" value="host">
+                <option value="host">Host only (localhost:25565)</option>
+                <option value="lan">LAN server (lan:random port)</option>
+                <option value="public">Online server (select port)</option>
+                <option value="cracked">Cracked server (select port)</option>
+            </select>
+            <div id="mc_bind_block" style="display: none;">
+                <label for="mc_bind_address">Bind address</label>
+                <input id="mc_bind_address" name="mc_bind_address" type="text" placeholder="[Address][:port] used to bind the proxy server to, default 0.0.0.0:25565 or :25565" />
+                <div id="mc_whitelist_block" style="display: none;">
+                    <label for="mc_whitelist">Allowed users</label>
+                    <input id="mc_whitelist" name="mc_whitelist" type="text" value="" placeholder="Put here allowed minecraft names that can join the server, none if everyone can join" />
+                </div>
+            </div>
+            <label for="mc_host">Destination server</label>
+            <input id="mc_host" name="mc_host" type="text" placeholder="Server you want to connect to e.g mc.hypixel.net" />
+
+            <button id="mc_play_button" type="submit" onclick="onButtonClick()">Start</button>
+            <br />
+            <pre id="mc_server_status"></pre>
+            <script type="text/javascript" src="index.js"></script>
+        </div>
+    </body>
+</html>
