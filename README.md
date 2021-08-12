@@ -35,9 +35,9 @@ There are three ways to install it (see https://github.com/SqueezedSlime/mc-prox
 
    
    The only files (in the executable) are Electron and the github projects contents (nothing more because there is no dependency), you can verify the files if you like. See the create-image.js
-2. Download pre-bult zips in the releases tab. I made those zips exactly the same as how you will do it on step 3. 
+2. Download pre-built zips in the releases tab. I made those zips exactly the same as how you will do it on step 3. 
 3. 
-    If you want to download it for Mac (or Windows/Linux without downloading the binaries), you need to download the Electron binaries manually.
+    If you do not want to download anything from this page, you can also download Electron and extract the source code into it.
     Download the latest stable release.
     https://github.com/electron/electron/releases
 
