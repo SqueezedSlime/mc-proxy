@@ -135,6 +135,7 @@ function startServer(session) {
             //invalidate also stops the keepalive
             elements.server_status.innerText = 'Type: "host-only"\nIP: "localhost"\nPort: 25565\nOnline-mode: no\nDestination: ' + JSON.stringify(displayHost) + "\n" + motd + "\nUsername: " + JSON.stringify(session.name) + "\nUUID: " + JSON.stringify(uuidWithDashes(session.uuid));
             addSecret();
+            server.once('close', () => session.invalidate().catch(ex => console.error(ex))); 
             console.log('Localhost server on ' + server.address().port);
             session.keepAlive(true);
             elements.button.innerText = 'Stop';
@@ -150,7 +151,7 @@ function startServer(session) {
             addSecret();
             console.log('LAN server on ' + port);
             var multicast = bindMulticastClient(port, 'MC proxy - ' + displayHost, '0.0.0.0');
-            server.once('close', () => { session.invalidate(); multicast.close(); });
+            server.once('close', () => { session.invalidate().catch(ex => console.error(ex)); multicast.close(); });
             server.multicast = multicast;
             session.keepAlive(true);
             elements.button.innerText = 'Stop';
@@ -164,7 +165,7 @@ function startServer(session) {
         server.listen(bind_port, bind_address, () => { 
             elements.server_status.innerText = 'Type: "public"\nIP: ' + JSON.stringify(bind_address) + "\nPort: " + Number(port) + "\nOnline-mode: yes\nWhitelist: " + whitelist.map(x => JSON.stringify(x)).join(', ') + "\nDestination: " + JSON.stringify(displayHost) + "\n" + motd  + "\nUsername: " + JSON.stringify(session.name) + "\nUUID: " + JSON.stringify(uuidWithDashes(session.uuid));
             addSecret();
-            server.once('close', () => session.invalidate()); 
+            server.once('close', () => session.invalidate().catch(ex => console.error(ex))); 
             session.keepAlive(true);
             elements.button.innerText = 'Stop';
         }); 
@@ -175,7 +176,7 @@ function startServer(session) {
         server.listen(bind_port, bind_address, () => {  
             elements.server_status.innerText = 'Type: "public"\nIP: ' + JSON.stringify(bind_address) + "\nPort: " + Number(port) + "\nOnline-mode: no\nDestination: " + JSON.stringify(displayHost) + "\n" + motd  + "\nUsername: " + JSON.stringify(session.name) + "\nUUID: " + JSON.stringify(uuidWithDashes(session.uuid));
             addSecret();
-            server.once('close', () => session.invalidate()); 
+            server.once('close', () => session.invalidate().catch(ex => console.error(ex))); 
             session.keepAlive(true); 
             elements.button.innerText = 'Stop';
         });
