@@ -5,6 +5,9 @@ const https = require('https');
 const dns = require('dns');
 const { Duplex } = require('stream');
 
+/**
+ * Base class for a reader/writer
+ */
 class BaseDataParser {
     /**
      * The stream
@@ -28,6 +31,7 @@ class BaseDataParser {
      * @returns {Promise}
      */
      streamPromise(promise, canEnd) {
+        var stack = new Error("stack");
         return new Promise((resolve, reject) => {
             if(this.error) {
                 reject(this.error);
@@ -50,14 +54,27 @@ class BaseDataParser {
             })
             .then(value => resolve(value))
             .catch(ex => reject(ex))
+        }).catch(ex => {
+            if(ex && ex.stack && stack.stack) ex.stack += "\n" + stack.stack;
+            throw ex;
         });
     }
 
+    /**
+     * Resolves if ALL tasks have been completed
+     * @returns {Promise}
+     */
     streamReady() {
         if(this.error) return Promise.reject(this.error);
         return this.waitlist;
     }
 
+    /**
+     * Add a task to the waitlist
+     * This task will be run if all other tasks have completed, and the next task will be run if this task has been completed.
+     * @param {(() => Promise) | Promise} promise A function that can be invoked after all previous tasks have been done
+     * @returns 
+     */
     addWaitlist(promise) {
         var canEnd = this.canEnd;
         this.waitlist = this.streamReady().then(() => this.streamPromise(typeof promise == 'function' ? promise() : promise, canEnd));
@@ -65,6 +82,9 @@ class BaseDataParser {
     }
 }
 
+/**
+ * A reader can parse minecraft packets from a Readable stream.
+ */
 class ReadableDataParser extends BaseDataParser {
     /**
      * The stream
@@ -77,6 +97,11 @@ class ReadableDataParser extends BaseDataParser {
     }
     
 
+    /**
+     * Resolves with a promise if it is save to read from this stream
+     * @param {bool} canEnd if true, it will return (as if the stream was readable) if the stream ended otherwise it will throw an Error
+     * @returns {Promise} a promise that resolves when it is safe to read
+     */
     onReadable(canEnd) {
         return this.streamPromise(new Promise(callback => this.stream.once('readable', () => callback())), canEnd);
     }
@@ -123,6 +148,12 @@ class ReadableDataParser extends BaseDataParser {
         return this.readBytes(1).then(buff => buff ? buff[0] : null);
     }
 
+    /**
+     * Read a MC varInt
+     * @param {bool} saveRead If canEnd = true, to store the already readed data and return that. 
+     *                        If false, ended while reading a varInt (no matter what canEnd) it will throw an Error.
+     * @returns {Promise<number>} A promise that resolves with the varint
+     */
     async readVarInt(saveRead = false) {
         var numRead = 0;
         var result = 0;
@@ -149,22 +180,43 @@ class ReadableDataParser extends BaseDataParser {
         return result;
     }
 
+    /**
+     * Read a unsigned short (2 bytes) in BE
+     * @returns {Promise<number>} value of the Unsigned Short
+     */
     readUnsignedShort() {
         return this.readBytes(2).then(buff => buff ? buff.readUInt16BE(0) : null);
     }
 
+    /**
+     * Read a signed short (2 bytes) in BE
+     * @returns {Promise<number>} value of the short
+     */
     readShort() {
         return this.readBytes(2).then(buff => buff ? buff.readInt16BE(0) : null);
     }
 
+    /**
+     * Read a signed int (4 bytes) in BE
+     * @returns {Promise<number>} value of the int
+     */
     readInt() {
         return this.readBytes(4).then(buff => buff ? buff.readInt32BE(0) : null);
     }
 
+    /**
+     * Read a signed long (8 bytes) in BE
+     * @returns {Promise<bigint>} value of signed long as a BigInt
+     */
     readLong() {
         return this.readBytes(8).then(buff => buff ? buff.readBigInt64BE(0) : null);
     }
 
+    /**
+     * Read a string (up to maxLength) prefixed by a length as a VarInt
+     * @param {number} maxLength max length to read, if the string is longer an Error will be thrown 
+     * @returns {Promise<string>} the string value
+     */
     async readString(maxLength) {
         var len = await this.readVarInt();
         if(len == null) return null;
@@ -179,6 +231,10 @@ class ReadableDataParser extends BaseDataParser {
     }
 }
 
+/**
+ * A WritableDataBuffer can contain Minecraft data/packets
+ * that can be written to a WritableDataParser
+ */
 class WritableDataBuffer {
     constructor(size, parser, block) {
         if(!size) size = 50;
@@ -245,12 +301,22 @@ class WritableDataBuffer {
         }
     }
 
+    /**
+     * Convert this class to a Node.JS Buffer
+     * @returns {Buffer} the buffer containg the contents of this class
+     */
     toBuffer() {
         var fixed = Buffer.alloc(this.length);
         this.buffer.copy(fixed, 0, 0, this.length);
         return fixed;
     }
 
+    /**
+     * Resize the length of the WritableDataBuffer.
+     * If necessary, the capacity will be resized too
+     * @param {number} minimal_size Minimal required length.  
+     * @returns {undefined}
+     */
     resizeBuffer(minimal_size) {
         if(minimal_size < this.length) return;
         this.length = minimal_size;
@@ -263,6 +329,12 @@ class WritableDataBuffer {
         
     }
 
+    /**
+     * Write a single unsigned byte to this buffer
+     * @param {number} value the unsigned byte value
+     * @param {number | null} index the index to write at, or null (default) to write at the end
+     * @returns {{index: number, length: number}}
+     */
     writeByte(value, index) {
         if(index == null) index = this.length;
         this.resizeBuffer(index + 1);
@@ -270,6 +342,12 @@ class WritableDataBuffer {
         return { index, length: 1 };
     }
 
+    /**
+     * Write multiple bytes to this buffer
+     * @param {Buffer} buffer buffer containing the data to write
+     * @param {number | null} index the index to write at, or null (default) to write at the end 
+     * @returns  {{index: number, length: number}}
+     */
     writeBytes(buffer, index) {
         if(!(buffer instanceof Buffer)) buffer = Buffer.from(buffer);
         if(buffer.length < 1) return { index, length: 0 }
@@ -279,6 +357,12 @@ class WritableDataBuffer {
         return { index, length: buffer.length }
     }
 
+    /**
+     * Write a MC varint to this buffer
+     * @param {number} value The varint to write (as a number value) 
+     * @param {number | null} index the index to write at, or null (defualt) to write at the end.
+     * @returns  {{index: number, length: number}}
+     */
     writeVarInt(value, index) {
         if(index == null) index = this.length;
         var start = index;
@@ -293,6 +377,12 @@ class WritableDataBuffer {
         return { length: index - start, index: start };
     }
 
+    /**
+     * Write an unsigned short (2 bytes) in BE
+     * @param {number} value The unsigned short
+     * @param {number | null} index The index to write at or null (default) to write at the end 
+     * @returns  {{index: number, length: number}}
+     */
     writeUnsignedShort(value, index) {
         if(index == null) index = this.length;
         this.resizeBuffer(index + 2);
@@ -322,7 +412,7 @@ class WritableDataBuffer {
     }
 
     /**
-     * Push the buffer to the parser
+     * Push the buffer directly to the underlying stream of the parser, flushing any internal buffers if needed.
      * @param {WritableDataParser} parser the parser to push, null if default (the one that created this parser) 
      * @returns {Promise}
      */
@@ -336,8 +426,10 @@ class WritableDataBuffer {
     }
 
     /**
-     * Append the buffer to the internal buffer of the parser (for a later write call)
-     *@param {WritableDataParser} parser the parser to append internal buffer, null if default (the one that created this parser) 
+     * Append the buffer to the internal buffer of the parser (for a later write call) instead of writing it directly to the underling stream
+     * 
+     * This improves perfomance, especially with TCP because TCP usually makes a TCP packet for every write(2) call.
+     * @param {WritableDataParser} parser the parser to append internal buffer, null if default (the one that created this parser) 
      * @returns {Promise}
      */
     appendPending(parser) {
@@ -358,6 +450,9 @@ class WritableDataBuffer {
     }
 }
 
+/**
+ * A WritableDataParser can send minecraft packets using a WritableDataBuffer.
+ */
 class WritableDataParser extends BaseDataParser {
     /**
      * The stream
@@ -368,6 +463,11 @@ class WritableDataParser extends BaseDataParser {
         this.pendingWriteBuffer = Buffer.alloc(0);
     }
 
+    /**
+     * Write multiple bytes directly to the underlying stream
+     * @param {Buffer} buffer the buffer to write
+     * @returns {Promise} a promise that resolves when the data is written.
+     */
     writeBytes(buffer) {
         return this.addWaitlist(() => new Promise((resolve, reject) => {
             var buff = (this.pendingWriteBuffer && this.pendingWriteBuffer.length > 0) ? Buffer.concat([this.pendingWriteBuffer, buffer]) : buffer;
@@ -383,10 +483,24 @@ class WritableDataParser extends BaseDataParser {
         }));
     }
 
+    /**
+     * Flush any internal buffers to write the data to the underlying Node.JS stream.
+     * 
+     * There are only internal buffers if appendPending() is used, 
+     * buffers are always flushed if writeBytes() on this class or push() on a WritableDataBuffer (created without appendPending()) is used.
+     * @returns {Promise} a promise that resolves when all data is written.
+     */
     flush() {
         return this.writeBytes(Buffer.alloc(0));
     }
 
+    /**
+     * Pushes the buffer to the internal buffer of this class instead writing it to the underlying stream.
+     * 
+     * This improves perfomance, especially with TCP because TCP usually makes a TCP packet for every write(2) call.
+     * @param {Buffer} buffer the buffer to write
+     * @returns {Promise} A promise that resolves when the data is pushed
+     */
     appendPending(buffer) {
         return this.addWaitlist(() => new Promise(callback => {
             if(buffer.length < 1) {
@@ -398,23 +512,51 @@ class WritableDataParser extends BaseDataParser {
         }));
     }
     
+    /**
+     * Create a buffer that can push data to this parser
+     * @param {number} size  Initial capacity for the buffer, should be big enough (not required) so that it won't reallocate the buffer.
+     * @returns {WritableDataBuffer} The newly created data buffer
+     */
     createBuffer(size) {
         return new WritableDataBuffer(size, this, false);
     }
 
+    /**
+     * Create a buffer that blocks this parses until it pushes all the data to the underlying stream (or cancels)
+     * @param {number} size Initial capacity for the buffer, should be big enough (not required) so that it won't reallocate the buffer.
+     * @returns {WritableDataBuffer} The newly created data buffer
+     */
     createCheckpoint(size) {
         return new WritableDataBuffer(size, this, true);
     }
 }
 
+
+/**
+ * Validate the UUID and convert any UUID (that has dashes or not) to a UUID with dashes
+ * @param {string} id the UUID (with dashes or not) to validate and convert
+ * @returns {string} an UUID always with dashes
+ */
 function uuidWithDashes(id) {
     return [.../([a-z0-9]{8})\-?([a-z0-9]{4})\-?([a-z0-9]{4})\-?([a-z0-9]{4})\-?([a-z0-9]{12})/.exec(id)].slice(1).join('-')
 }
 
+/**
+ * Validate the UUID and convert any UUID (that has dashes or not) to a UUID without dashes
+ * @param {*} id the UUID (with dashes or not) to validate and convert
+ * @returns {string} an UUID always without dashes
+ */
 function uuidWithoutDashes(id) {
     return [.../([a-z0-9]{8})\-?([a-z0-9]{4})\-?([a-z0-9]{4})\-?([a-z0-9]{4})\-?([a-z0-9]{12})/.exec(id)].slice(1).join('')
 }
 
+/**
+ * Convert a binary buffer to a MC HEX string (e.g used to join servers.)
+ * 
+ * Usually the binary buffer is the output of a SHA1 hash
+ * @param {string | Buffer} str the binary data 
+ * @returns {string} A MC hex digest (which may start with a - instead of a valid hex character)
+ */
 function mcHexDigest(str) {
     var hash = Buffer.from(str, 'binary');
     // check for negative hashes
@@ -428,6 +570,7 @@ function mcHexDigest(str) {
   
   }
   
+  //Help function for mcHexDigest if output is negative
   function performTwosCompliment(buffer) {
     var carry = true;
     var i, newByte, value;
@@ -443,6 +586,10 @@ function mcHexDigest(str) {
     }
   }
 
+/**
+ * Generate a pseudo random SECURE 16 bytes secret for AES encryption
+ * @returns {Promise<Buffer>} Resolves with a 16 bytes buffer secure random data or an Error if secure random data cannot be generated.
+ */
 function generateMCSharedSecret() {
     return new Promise((resolve, reject) => {
         crypto.randomFill(Buffer.alloc(16), (err, buff) => {
@@ -453,10 +600,24 @@ function generateMCSharedSecret() {
 }
 
 var supportsMCChiper = crypto.getCiphers().includes('aes-128-cfb8');
+
+/**
+ * Create an encryption stream to encrypt 
+ * @param {Buffer} sharedSecret the 128-bits key (both key and IV) for the chiper stream
+ * @returns {Duplex} A duplex where you can write plain text data to get encrypted data out.
+ */
 function createMCChiperStream(sharedSecret) {
     if(supportsMCChiper) {
-        return crypto.createCipheriv('aes-128-cfb8', sharedSecret, sharedSecret);
+        var duplex = crypto.createCipheriv('aes-128-cfb8', sharedSecret, sharedSecret);
+        duplex.secret = sharedSecret;
+        return duplex;
     } else {
+        /*
+            We do NOT want to implement AES in pure JS because AES natively is way faster.
+            Also some CPU's have AES instructions so that is even faster.
+
+            We use the aes-128-ecb to create our stream chiper for MC.
+        */
         var ecb = crypto.createCipheriv('aes-128-ecb', sharedSecret, Buffer.alloc(0));
         var register = Buffer.alloc(16);
         sharedSecret.copy(register, 0, 0, register.length);
@@ -503,10 +664,24 @@ function createMCChiperStream(sharedSecret) {
     }
 }
 
+/**
+ * Create a decryption stream
+ * @param {Buffer} sharedSecret the 128-bits key (both key and IV) for the chiper stream
+ * @returns {Duplex} A duplex where you can write encrypted data to get unencrypted data.
+ */
 function createMCDechiperStream(sharedSecret) {
     if( supportsMCChiper) {
-        return crypto.createDecipheriv('aes-128-cfb8', sharedSecret, sharedSecret);
+        var crypto = createDecipheriv('aes-128-cfb8', sharedSecret, sharedSecret);
+        duplex.secret = sharedSecret;
+        return duplex;
     } else {
+        /*
+            We do NOT want to implement AES in pure JS because AES natively is way faster.
+            Also some CPU's have AES instructions so that is even faster.
+
+            We use the aes-128-ecb to create our stream dechiper for MC.
+            Note that the block chiper here is also encrypt
+        */
         var ecb = crypto.createCipheriv('aes-128-ecb', sharedSecret, Buffer.alloc(0));
         var register = Buffer.alloc(16);
         sharedSecret.copy(register, 0, 0, register.length);
@@ -1357,6 +1532,11 @@ function createProxyServer(getServer) {
     return proxyServer;
 }
 
+/**
+ * Get status of the destination server
+ * @param {{protocolVersion?: string, host: string, port: number, displayHost?: string, displayPort?: number}} param0 Options for the destination server
+ * @returns {Promise<{data: object, ping: number}>} A promise that resolves with an object containing the JSON response data and the MS ping delay or rejects with an Error 
+ */
 async function getServerStatus({ protocolVersion, host, port, displayHost, displayPort }) {
     if(!displayHost) displayHost = host;
     if(!displayPort) displayPort = port;
@@ -1414,6 +1594,10 @@ async function getServerStatus({ protocolVersion, host, port, displayHost, displ
         var val = await reader.readLong();
         if(val != now) throw new Error("Invalid pong response (does not match)");
         ping = Date.now() - Number(now);
+
+        await writer.flush();
+        await reader.streamReady();
+        await writer.streamReady();
         
     } catch(ex) {
         try {socket.destroy(ex)}catch(_){}
@@ -1424,6 +1608,13 @@ async function getServerStatus({ protocolVersion, host, port, displayHost, displ
     return { data, ping: ping };
 }
 
+/**
+ * Get the Public key (and a function to sign server join hashes) of the destination server
+ * @param {{protocolVersion?: string, host: string, port: number, displayHost?: string, displayPort?: number, username?: string}} param0 Options for the destination server
+ * @returns {Promise<{status: 'disconnect' | 'cracked' | 'online', message?: object, serverName?: string, publicKey?: Buffer, createHash?: (sharedSecret: Buffer) => string}>} A Promise that resolves with the response status. 
+ *          if online, then you get the serverName (max 20 bytes), the public key as a Buffer in DER format and a function that can create a MC hex digest for signing in if you give the missing SharedSecret. It rejects with an Error if the connection failed.
+ * Some servers reject the connection if the protocolVersion is not correct. You can get the protocolVersion with getServerStatus and use (await getServerStatus(...)).data.version.protocol for protocolVersion.
+ */
 async function getServerPublicKey({ protocolVersion, host, port, displayHost, displayPort, username }) {
     if(!displayHost) displayHost = host;
     if(!displayPort) displayPort = port;
@@ -1489,14 +1680,14 @@ async function getServerPublicKey({ protocolVersion, host, port, displayHost, di
             case 3: //set compression
                 response = {status: 'cracked'};
                 break;
-            case 4:
+            case 4: //Plugin request, we always response that we do not support the addition (same as te Notchian client)
                 var messageID = await reader.readVarInt();
                 await reader.readBytes(length - (reader.index - index));
                 buff1 = writer.createCheckpoint(5);
                 buff2 = writer.createCheckpoint(10);
                 buff2.writeVarInt(2);
                 buff2.writeVarInt(messageID);
-                buff2.writeByte(0);
+                buff2.writeByte(0); //success = false
                 buff1.writeVarInt(buff2.length);
                 buff1.appendPending();
                 await buff2.push();
@@ -1504,6 +1695,7 @@ async function getServerPublicKey({ protocolVersion, host, port, displayHost, di
             default:
                 throw new Error("Unknown packet ID in login: " + id);
             }
+            break;
         }
         if(id == 1) {
             var serverName = await reader.readString(20);
@@ -1512,13 +1704,16 @@ async function getServerPublicKey({ protocolVersion, host, port, displayHost, di
             var publicKey = await reader.readBytes(pubKeyLength);
             var verifyTokenLength = await reader.readVarInt();
             if(verifyTokenLength > 256) throw new Error("Too long verify token");
-            await reader.readBytes(verifyTokenLength);
+            var verifyToken = await reader.readBytes(verifyTokenLength);
             if(reader.index !== index + length) throw new Error("index does not match with length for encryption request");
             var serverNameBuff = Buffer.from(serverName, 'utf-8');
-            response = {status: 'online', publicKey, serverName, createHash(sharedSecret) {
+            response = {status: 'online', publicKey, verifyToken, serverName, createHash(sharedSecret) {
                 return mcHexDigest(crypto.createHash('sha1').update(serverNameBuff).update(sharedSecret).update(pubKey).digest());
             }};
         }
+        await writer.flush();
+        await reader.streamReady();
+        await writer.streamReady();
         if(!response) throw new Error("No response");
 
     } catch(ex) {
@@ -1530,6 +1725,11 @@ async function getServerPublicKey({ protocolVersion, host, port, displayHost, di
     return response;
 }
 
+/**
+ * Resolve SRV records that points to the real address of a server.
+ * @param {String} host the host to resolve 
+ * @returns {Promise<{name: string, port: number}>} a promise that resolves with the original host (and port is null) or a new name (and port is the port in the SRV record).
+ */
 function resolveMCSrvRecord(host) {
     return new Promise(resolve => {
         dns.resolveSrv('_minecraft._tcp.' + host, (err, addr) => {
@@ -1540,6 +1740,11 @@ function resolveMCSrvRecord(host) {
     });
 }
 
+/**
+ * Convert chat objects (from disconnect or server ping) to a string.
+ * @param {object} chat The chat object to conver  
+ * @returns {string} A string with all the formatting removed.
+ */
 function chatObjectToString(chat) {
     if(typeof chat == 'object') {
         var txt = String(chat.text || '');
@@ -1552,12 +1757,18 @@ function chatObjectToString(chat) {
     } else return String(chat);
 }
 
+/**
+ * Parse a motd chat object to an array of string. each item in the array is a line for multiplayer.
+ * It always returns an array with 2 items (because Motd can have 2 lines). One of these lines can be empty and none of these lines is longer then 45 characters.
+ * @param {object} chat The chat object from server ping to convert. It is located at the 'description' property from the status object returned by server ping. 
+ * @returns {[string, string]} An array with 2 items, for each motd line.
+ */
 function parsePingMotdObject(chat) {
     var totalMotd = chatObjectToString(chat);
     var splitIndex = totalMotd.indexOf('\n');
 
     if(splitIndex < 0 || splitIndex > 45) splitIndex = 45;
-    return [totalMotd.substr(0, splitIndex), totalMotd.substr(splitIndex, 45).split('\n').join('')];
+    return [totalMotd.substr(0, splitIndex), totalMotd.substr(splitIndex, 45).split('\n')[0]];
 
 }
 

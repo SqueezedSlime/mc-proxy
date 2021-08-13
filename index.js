@@ -1,5 +1,5 @@
 const { ipcRenderer } = require('electron');
-const { generateMCSharedSecret, uuidWithDashes } = require('./mc-proxy')
+const { generateMCSharedSecret, uuidWithDashes, getServerStatus, getServerPublicKey, resolveMCSrvRecord, parsePingMotdObject } = require('./mc-proxy')
 const { createCrackedSession } = require('./authenticators/base');
 const { loginMojangAccount, sessionFromAccesToken } = require('./authenticators/mojang');
 const { loginMicrosoftAccount } = require('./authenticators/microsoft');
@@ -97,6 +97,7 @@ function setServerType(value) {
 var authOpen = false;
 var proxyServer;
 var session;
+var host, displayHost, port, motd;
 
 var sharedSecret = generateMCSharedSecret();
 
@@ -107,18 +108,7 @@ function startServer(session) {
         proxyServer.close();
         proxyServer = null;
     }
-    var host = elements.host.value;
-    var displayHost = host;
-    var portIndex = host.indexOf(':');
-    var port = 25565;
-    if(portIndex >= 0) {
-        port = Number(host.substr(portIndex + 1));
-        host = host.substr(0, portIndex);
-    }
-    if(!host || !port) {
-        alert("No host/port is given");
-        return;
-    }
+
     var serverType = elements.server_type.value;
     var server, bind_address, bind_port;
     
@@ -143,7 +133,7 @@ function startServer(session) {
         server = session.createProxyServer(host, port, null, sharedSecret);
         server.listen(25565, '127.0.0.1', () => {
             //invalidate also stops the keepalive
-            elements.server_status.innerText = 'Type: "host-only"\nIP: "localhost"\nPort: 25565\nOnline-mode: no\nDestination: ' + JSON.stringify(displayHost) + "\nUsername: " + JSON.stringify(session.name) + "\nUUID: " + JSON.stringify(uuidWithDashes(session.uuid));
+            elements.server_status.innerText = 'Type: "host-only"\nIP: "localhost"\nPort: 25565\nOnline-mode: no\nDestination: ' + JSON.stringify(displayHost) + "\n" + motd + "\nUsername: " + JSON.stringify(session.name) + "\nUUID: " + JSON.stringify(uuidWithDashes(session.uuid));
             addSecret();
             console.log('Localhost server on ' + server.address().port);
             session.keepAlive(true);
@@ -155,7 +145,7 @@ function startServer(session) {
         server = session.createProxyServer(host, port, null, sharedSecret);
         server.listen(0, '0.0.0.0', () => {
             var port = server.address().port;
-            elements.server_status.innerText = 'Type: "lan"\nIP: Check LAN worlds on multilayer\nPort: ' + Number(port) + "\nOnline-mode: no\nDestination: " + JSON.stringify(displayHost) + "\nUsername: " + JSON.stringify(session.name) + "\nUUID: " + JSON.stringify(uuidWithDashes(session.uuid));
+            elements.server_status.innerText = 'Type: "lan"\nIP: Check LAN worlds on multilayer\nPort: ' + Number(port) + "\nOnline-mode: no\nDestination: " + JSON.stringify(displayHost) + "\n" + motd  + "\nUsername: " + JSON.stringify(session.name) + "\nUUID: " + JSON.stringify(uuidWithDashes(session.uuid));
             addSecret();
             console.log('LAN server on ' + port);
             var multicast = bindMulticastClient(port, 'MC proxy - ' + displayHost, '0.0.0.0');
@@ -170,7 +160,7 @@ function startServer(session) {
         var whitelist = String(elements.whitelist.value).trim().split(',').map(x => x.trim()).filter(x => x);
         server = session.createProxyServer(host, port, whitelist, sharedSecret);
         server.listen(bind_port, bind_address, () => { 
-            elements.server_status.innerText = 'Type: "public"\nIP: ' + JSON.stringify(bind_address) + "\nPort: " + Number(port) + "\nOnline-mode: yes\nWhitelist: " + whitelist.map(x => JSON.stringify(x)).join(', ') + "\nDestination: " + JSON.stringify(displayHost) + "\nUsername: " + JSON.stringify(session.name) + "\nUUID: " + JSON.stringify(uuidWithDashes(session.uuid));
+            elements.server_status.innerText = 'Type: "public"\nIP: ' + JSON.stringify(bind_address) + "\nPort: " + Number(port) + "\nOnline-mode: yes\nWhitelist: " + whitelist.map(x => JSON.stringify(x)).join(', ') + "\nDestination: " + JSON.stringify(displayHost) + "\n" + motd  + "\nUsername: " + JSON.stringify(session.name) + "\nUUID: " + JSON.stringify(uuidWithDashes(session.uuid));
             addSecret();
             server.once('close', () => session.invalidate()); 
             session.keepAlive(true);
@@ -180,7 +170,7 @@ function startServer(session) {
     case 'cracked':
         server = session.createProxyServer(host, port, null, sharedSecret);
         server.listen(bind_port, bind_address, () => {  
-            elements.server_status.innerText = 'Type: "public"\nIP: ' + JSON.stringify(bind_address) + "\nPort: " + Number(port) + "\nOnline-mode: no\nDestination: " + JSON.stringify(displayHost) + "\nUsername: " + JSON.stringify(session.name) + "\nUUID: " + JSON.stringify(uuidWithDashes(session.uuid));
+            elements.server_status.innerText = 'Type: "public"\nIP: ' + JSON.stringify(bind_address) + "\nPort: " + Number(port) + "\nOnline-mode: no\nDestination: " + JSON.stringify(displayHost) + "\n" + motd  + "\nUsername: " + JSON.stringify(session.name) + "\nUUID: " + JSON.stringify(uuidWithDashes(session.uuid));
             addSecret();
             server.once('close', () => session.invalidate()); 
             session.keepAlive(true); 
@@ -219,36 +209,76 @@ function onButtonClick() {
         elements.server_status.innerText = '';
         elements.button.innerText = 'Start';
     } else {
-        authOpen = true;
-        var promise;
-        switch(elements.authentication_type.value) {
-        case 'mojang':
-            promise = loginMojangAccount(elements.name.value, elements.password.value)
-            break;
-        case 'microsoft':
-            ipcRenderer.send('microsoft-auth');
-            return;
-        case 'cracked':
-            promise = Promise.resolve(createCrackedSession(elements.name.value));
-            break;
-        case 'altening':
-            promise = redeemAlteningToken(elements.name.value);
-            break;
-        case 'easymc':
-            promise = redeemEasyMCToken(elements.name.value);
-            break;
-        case 'mcleaks':
-            promise = redeemMCLeakToken(elements.name.value);
-            break;
-        case 'token':
-            promise = sessionFromAccesToken(elements.token.value, elements.name.value);
-            break;
-        default:
-            authOpen = false;
-            alert('Unknown authentication type');
+        host = elements.host.value;
+        displayHost = host;
+        var portIndex = host.indexOf(':');
+        port = 25565;
+        if(portIndex >= 0) {
+            port = Number(host.substr(portIndex + 1));
+            host = host.substr(0, portIndex);
+        }
+        if(!host || !port) {
+            alert("No host/port is given");
             return;
         }
-        promise.then(session => startServer(session)).catch(ex => { console.error(ex); alert(ex.message) }).then(() => authOpen = false);
-        elements.button.value = 'Starting...';
+
+        try {
+            authOpen = true;
+            resolveMCSrvRecord(host).then(h => {
+                host = h.name || host;
+                port = h.port || port;
+                return getServerStatus({ host, port });
+            }).then(res => {
+                var txt = parsePingMotdObject(res.data.description || {});
+                motd = "Version: " + res.data.version.name +  "\nMOTD: " + txt[0] + "\nMOTD: " + txt[1] + "\nPlayers: " + res.data.players.online + "/" + res.data.players.max + "\nPing: " + String(res.ping) + "ms";
+                //getServerPublicKey({ host, port, protocolVersion: res.data.version.protocol }).then(x => console.log(x)).catch(x => console.error(x));
+                var promise;
+                switch(elements.authentication_type.value) {
+                case 'mojang':
+                    promise = loginMojangAccount(elements.name.value, elements.password.value)
+                    break;
+                case 'microsoft':
+                    ipcRenderer.send('microsoft-auth');
+                    return;
+                case 'cracked':
+                    promise = Promise.resolve(createCrackedSession(elements.name.value));
+                    break;
+                case 'altening':
+                    promise = redeemAlteningToken(elements.name.value);
+                    break;
+                case 'easymc':
+                    promise = redeemEasyMCToken(elements.name.value);
+                    break;
+                case 'mcleaks':
+                    promise = redeemMCLeakToken(elements.name.value);
+                    break;
+                case 'token':
+                    promise = sessionFromAccesToken(elements.token.value, elements.name.value);
+                    break;
+                default:
+                    authOpen = false;
+                    elements.button.innerText = 'Start';
+                    alert('Unknown authentication type');
+                    return;
+                }
+                return promise.then(session => startServer(session)).catch(ex => { console.error(ex); alert(ex.message) }).finally(() => {
+                    authOpen = false;
+                    elements.button.innerText = 'Start';
+                });
+            }).catch(ex => {
+                console.error(ex);
+                alert(ex.message);
+            }).finally(() => {
+                authOpen = false;
+                elements.button.innerText = 'Start';
+            });
+            elements.button.innerText = 'Starting...';
+        } catch(ex) {
+            authOpen = false;
+            console.error(ex);
+            alert(ex.message);
+            elements.button.innerText = 'Start';
+            return;
+        }
     }
 }
