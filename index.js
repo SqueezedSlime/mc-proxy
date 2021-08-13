@@ -137,6 +137,7 @@ function startServer(session) {
             addSecret();
             console.log('Localhost server on ' + server.address().port);
             session.keepAlive(true);
+            elements.button.innerText = 'Stop';
         });
         server.type = 'host';
         
@@ -152,6 +153,7 @@ function startServer(session) {
             server.once('close', () => { session.invalidate(); multicast.close(); });
             server.multicast = multicast;
             session.keepAlive(true);
+            elements.button.innerText = 'Stop';
         });
         server.type = 'lan';
         
@@ -164,6 +166,7 @@ function startServer(session) {
             addSecret();
             server.once('close', () => session.invalidate()); 
             session.keepAlive(true);
+            elements.button.innerText = 'Stop';
         }); 
         server.type = 'public';
         break;
@@ -174,6 +177,7 @@ function startServer(session) {
             addSecret();
             server.once('close', () => session.invalidate()); 
             session.keepAlive(true); 
+            elements.button.innerText = 'Stop';
         });
         server.type = 'cracked';
         break;
@@ -183,7 +187,6 @@ function startServer(session) {
     }
     server.on('error', ex => { console.error(ex); alert(ex.message) });
     server.on('client-error', ex => console.error(ex));
-    elements.button.innerText = 'Stop';
     proxyServer = server;
     return server;
 }
@@ -228,6 +231,9 @@ function onButtonClick() {
                 host = h.name || host;
                 port = h.port || port;
                 return getServerStatus({ host, port });
+            }).catch(ex => {
+                console.error(ex);
+                return {data: {description: {text: 'Cannot ping server'}, version: {name: "Cannot ping server", protocol: 65535}, players: {max: 0, online: 0}}, ping: 0}
             }).then(res => {
                 var txt = parsePingMotdObject(res.data.description || {});
                 motd = "Version: " + res.data.version.name +  "\nMOTD: " + txt[0] + "\nMOTD: " + txt[1] + "\nPlayers: " + res.data.players.online + "/" + res.data.players.max + "\nPing: " + String(res.ping) + "ms";
@@ -261,9 +267,8 @@ function onButtonClick() {
                     alert('Unknown authentication type');
                     return;
                 }
-                return promise.then(session => startServer(session)).catch(ex => { console.error(ex); alert(ex.message) }).finally(() => {
+                return promise.then(session => startServer(session)).catch(ex => { console.error(ex); alert(ex.message); elements.button.innerText = 'Start'; }).finally(() => {
                     authOpen = false;
-                    elements.button.innerText = 'Start';
                 });
             }).catch(ex => {
                 console.error(ex);
