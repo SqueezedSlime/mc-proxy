@@ -608,7 +608,7 @@ var supportsMCChiper = crypto.getCiphers().includes('aes-128-cfb8');
  */
 function createMCChiperStream(sharedSecret) {
     if(supportsMCChiper) {
-        var duplex = crypto.createCipheriv('aes-128-cfb8', sharedSecret, sharedSecret);
+        let duplex = crypto.createCipheriv('aes-128-cfb8', sharedSecret, sharedSecret);
         duplex.secret = sharedSecret;
         return duplex;
     } else {
@@ -671,7 +671,7 @@ function createMCChiperStream(sharedSecret) {
  */
 function createMCDechiperStream(sharedSecret) {
     if( supportsMCChiper) {
-        var crypto = createDecipheriv('aes-128-cfb8', sharedSecret, sharedSecret);
+        let duplex = crypto.createDecipheriv('aes-128-cfb8', sharedSecret, sharedSecret);
         duplex.secret = sharedSecret;
         return duplex;
     } else {
