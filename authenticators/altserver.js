@@ -173,7 +173,7 @@ class AltServerAuthenticator extends MCAuthenticator {
      */
     refresh() {
         var accessToken, clientToken, uuid, name;
-        return this.addWaitlist(Promise.resolve()
+        return this.addWaitlist(() => Promise.resolve()
             .then(() => {
                 if(!this.accessToken) throw new Error("You must first redeem the code");
                 accessToken = this.accessToken;

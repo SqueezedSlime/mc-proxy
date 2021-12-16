@@ -100,7 +100,9 @@ class MCAuthenticator {
         var oldwaitlist = this.waitlist;
         var callback;
         this.waitlist = new Promise(resolve => callback = resolve);
-        return oldwaitlist.then(func).finally(() => callback());
+        var promise = oldwaitlist.then(typeof func == 'function' ? func : () => func);
+        promise.finally(() => callback());
+        return promise;
     }
 
     /**
