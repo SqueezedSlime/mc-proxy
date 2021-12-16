@@ -26,7 +26,7 @@ Check the screenshots directory for more screenshots
 
 # Install
 
-There are three ways to install it (see https://github.com/SqueezedSlime/mc-proxy/releases/tag/1.1.0), the project does not require any dependency.
+There are three ways to install it (see https://github.com/SqueezedSlime/mc-proxy/releases/tag/1.1.1), the project does not require any dependency.
 
 1. Windows
    Go to the latest release, download the setup file and double click to run it. It will install the required files on your OS and make a shortcut on your desktop.
