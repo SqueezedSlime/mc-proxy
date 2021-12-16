@@ -98,7 +98,7 @@ var authOpen = false;
 var proxyServer;
 var session;
 var host, displayHost, port, motd;
-
+var redeemedSession = {type: 'none', token: '', session: null};
 var sharedSecret = generateMCSharedSecret();
 
 function startServer(session) {
@@ -251,10 +251,22 @@ function onButtonClick() {
                     promise = Promise.resolve(createCrackedSession(elements.name.value));
                     break;
                 case 'altening':
-                    promise = redeemAlteningToken(elements.name.value);
+                    if(redeemedSession.type == 'altening' && redeemedSession.token == elements.name.value) {
+                        promise = redeemedSession.session.refresh().then(() => redeemedSession.session, ex => redeemAlteningToken(elements.name.value));
+                    } else {
+                        let alttoken = elements.name.value;
+                        promise = redeemAlteningToken(alttoken);
+                        promise.then(session => {redeemedSession = {type: 'altening', token: alttoken, session};});
+                    }
                     break;
                 case 'easymc':
-                    promise = redeemEasyMCToken(elements.name.value);
+                    if(redeemedSession.type == 'easymc' && redeemedSession.token == elements.name.value) {
+                        promise = redeemedSession.session.refresh().then(() => redeemedSession.session, ex => redeemEasyMCToken(elements.name.value));
+                    } else {
+                        let alttoken = elements.name.value;
+                        promise = redeemEasyMCToken(alttoken);
+                        promise.then(session => {redeemedSession = {type: 'easymc', token: alttoken, session};});
+                    }
                     break;
                 case 'mcleaks':
                     promise = redeemMCLeakToken(elements.name.value);

@@ -6,7 +6,7 @@ const Platform = builder.Platform
 
 // Promise is returned
 builder.build({
-  targets: Platform.LINUX.createTarget(), //select OS HERE
+  targets: Platform.WINDOWS.createTarget(), //select OS HERE
   config: {
    appId: "com.github.SqueezedSlime.MinecraftAltProxy",
    productName: "MinecraftAltProxy",

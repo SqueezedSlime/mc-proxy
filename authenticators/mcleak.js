@@ -25,7 +25,7 @@ class MCLeakAuthenticator extends MCAuthenticator {
             if(!res.success) throw new Error("Request failed: " + (res.errorMessage || 'Unknown error'));
             this.accessToken = res.result.session;
             //Why does this API not provide a UUID??
-            return makeHTTPSRequest({ host: 'api.mojang.com', path: '/users/profiles/minecraft/' + encodeURIComponent(String(res.result.mcname)), method: 'get '})
+            return makeHTTPSRequest({ host: 'api.mojang.com', path: '/users/profiles/minecraft/' + encodeURIComponent(String(res.result.mcname)), method: 'get'})
         })).then(res => {
             this.name = res.name;
             this.uuid = res.id;
