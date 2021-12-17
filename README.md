@@ -18,15 +18,17 @@ And will decrypt any packet from the destination server and encrypt it again for
 
 On the LAN and Host-only type the proxy server is Cracked meaning it will not encrypt the packets going to the minecraft client.
 
+For alt servers you don't have to go to the site of the alt server. You can generate tokens inside the program. 
+
 # Screenshot
 
-![Altening on this proxy](screenshots/mc-proxy-altening.PNG?raw=true "MC altneing on mc proxy")
+![Altening on this proxy](screenshots/mc-proxy-altening.PNG?raw=true "MC altening on mc proxy")
 
 Check the screenshots directory for more screenshots
 
 # Install
 
-There are three ways to install it (see https://github.com/SqueezedSlime/mc-proxy/releases/tag/1.1.1), the project does not require any dependency.
+There are three ways to install it (see https://github.com/SqueezedSlime/mc-proxy/releases/tag/1.2.0), the project does not require any dependency.
 
 1. Windows
    Go to the latest release, download the setup file and double click to run it. It will install the required files on your OS and make a shortcut on your desktop.
