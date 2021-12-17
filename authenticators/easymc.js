@@ -1,3 +1,4 @@
+const { Waitlistable, makeHTTPSRequest, parseCookies } = require('./base');
 const { AltServerAuthenticator } = require('./altserver')
 
 var easyMCOptions = {
@@ -36,8 +37,30 @@ function redeemEasyMCToken(altToken) {
     }
 }
 
+function generateEasyMCToken(recaptcha) {
+    return makeHTTPSRequest({
+        host: 'api.easymc.io',
+        path: '/v1/token?new=true' + (recaptcha ? '&captcha=' + encodeURIComponent(recaptcha) : ''),
+        method: 'get',
+        supplyHeaders: true,
+        headers: { 
+            'Accept': '*/*',
+            'Origin': 'https://easymc.io',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'same-site',
+            'Referer': 'https://easymc.io/'
+        }
+    }).then(res => {
+        if(res.headers && res.headers['set-cookie']) this.token = parseCookies(res.headers['set-cookie']);
+        if(!res.token) throw new Error("No new token supplied");
+        return res.token;
+    });
+}
+
 module.exports = {
     EasyMCAuthenticator,
     redeemEasyMCToken,
-    easyMCOptions
+    easyMCOptions,
+    generateEasyMCToken
 }

@@ -1,6 +1,6 @@
 //Mcleaks (unlike thealtenticator) provides their api: see: https://mcleaks.net/apidoc
 
-const { MCAuthenticator, makeHTTPSRequest } = require('./base');
+const { MCAuthenticator, makeHTTPSRequest, parseCookies } = require('./base');
 
 function makeMCLeakRequest(endpoint, body) {
     return makeHTTPSRequest({ host: 'auth.mcleaks.net', method: body == null ? 'GET' : 'POST', path: '/v1/' + endpoint, body });
@@ -36,12 +36,11 @@ class MCLeakAuthenticator extends MCAuthenticator {
     }
 
     /**
-     * There is no refresh api endpoint so it will just get a new session token by redeeming the alt token again.
+     * Refresh an MCLeaks token
      * @returns {Promise}
      */
     refresh() {
-        var created = this.created;
-        return this.login().finally(() => this.created = created);
+        return this.signServerHash('0');
     }
 
     signServerHash(serverId) {
@@ -71,4 +70,37 @@ function redeemMCLeakToken(altToken) {
     }
 }
 
-module.exports = { MCLeakAuthenticator, redeemMCLeakToken };
+function generateMCLeakToken(recaptchaCode) {
+    return makeHTTPSRequest({
+        host: 'mcleaks.net',
+        path: '/get',
+        method: 'post',
+        text: true,
+        supplyHeaders: true,
+        headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Accept": "text/html"
+        },
+        body: "posttype=false&g-recaptcha-response=" + encodeURIComponent(recaptchaCode)
+    }).then(res => {
+        if(res && res.redirect) {
+            return makeHTTPSRequest({
+                host: 'mcleaks.net',
+                path: res.redirect,
+                method: 'get',
+                text: true,
+                headers: {
+                    "Accept": "text/html",
+                    "Cookie": parseCookies(res.headers['set-cookie'])
+                }
+            })
+        } else return res;
+    }).then(res => {
+        if(!res) throw new Error("No response received");
+        var found = /<input.*id="alttoken".*value="([a-zA-Z0-9]+)"/.exec(String(res));
+        if(!found || !found[1]) throw new Error("No token found in response");
+        return found[1];
+    })
+}
+
+module.exports = { MCLeakAuthenticator, redeemMCLeakToken, generateMCLeakToken };

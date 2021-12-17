@@ -1,7 +1,7 @@
 const https = require('https');
 const { createProxyServer, resolveMCSrvRecord } = require('../mc-proxy');
 
-function makeHTTPSRequest({ host, port, path, method, headers, body }) {
+function makeHTTPSRequest({ host, port, path, method, headers, body, text, supplyHeaders }) {
     var stack = new Error("Caused by");
     return (new Promise((resolve, reject) => {
         if (!headers) headers = {};
@@ -10,6 +10,7 @@ function makeHTTPSRequest({ host, port, path, method, headers, body }) {
             headers['Content-Type'] = 'application/json;utf-8';
         }
         if (!headers["Accept"]) headers["Accept"] = "application/json";
+        if(!headers['User-Agent']) headers['User-Agent'] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.45 Safari/537.36";
         if (!port) port = 443;
         if (!method) method = 'GET';
         if (body) body = Buffer.from(String(body), 'utf-8');
@@ -28,6 +29,13 @@ function makeHTTPSRequest({ host, port, path, method, headers, body }) {
             });
             res.on('end', () => {
                 try {
+                    if (res.statusCode === 302 && res.headers.location) {
+                        resolve(supplyHeaders ? {
+                            headers: res.headers,
+                            redirect: res.headers.location
+                        } : {redirect: res.headers.location});
+                        return;
+                    }
                     if (res.statusCode === 204) {
                         if (len > 0) reject(new RangeError("Data on no content"));
                         else resolve(null);
@@ -35,16 +43,24 @@ function makeHTTPSRequest({ host, port, path, method, headers, body }) {
                     }
                     if (res.statusCode !== 200) {
                         var message = "Unknown error";
-                        try {
-                            var json = JSON.parse(Buffer.concat(data).toString('utf-8'));
-                            if (json && typeof json == 'object') message = json.errormessage || json.errorMessage || json.message || json.description || json.error || message;
-                        } catch (_) { }
+                        if(!text) {
+                            try {
+                                var json = JSON.parse(Buffer.concat(data).toString('utf-8'));
+                                if (json && typeof json == 'object') message = json.errormessage || json.errorMessage || json.message || json.description || json.error || message;
+                            } catch (_) { }
+                        }
                         var err = new Error("Request failed: " + res.statusCode + " " + message);
                         err.response = res;
                         reject(err);
                         return;
                     }
-                    resolve(JSON.parse(Buffer.concat(data).toString('utf-8')));
+                    var str = Buffer.concat(data).toString('utf-8');
+                    var dat = text ? str : JSON.parse(str);
+                    if(supplyHeaders) {
+                        if(typeof dat == 'string') dat = {data: dat};
+                        dat.headers = res.headers;
+                    }
+                    resolve(dat);
                 } catch (ex) {
                     reject(ex);
                 }
@@ -59,30 +75,9 @@ function makeHTTPSRequest({ host, port, path, method, headers, body }) {
 }
 
 
-class MCAuthenticator {
-    /**
-     * Constructs a new MCAuthenticator.
-     * 
-     * In the constructor of a implementing class it must add a argument where the user can supply credentials.
-     * The constructor only stores the credentials and does not validate them or make any https requests. 
-     * That will happen in the login() method.
-     */
+class Waitlistable {
     constructor() {
-        if (this.constructor === MCAuthenticator) throw new Error("This is an abstract class");
-        this.keepAliveInterval = null;
         this.waitlist = Promise.resolve(true);
-        /**
-         * The name of the user. A class MUST set this value after the login() method succeeds.
-         * @return {string}
-         */
-        this.name = null;
-        /**
-         * The uuid of the user. A class MUST set this value after the login() method succeeds.
-         * 
-         * The uuid is wihout dashes
-         * @returns {string}
-         */
-        this.uuid = null;
     }
 
     /**
@@ -96,13 +91,40 @@ class MCAuthenticator {
      * @param {() => Promise} func the function that will return a new operation, if all other operations completed
      * @returns {Promise} A promise that will resolves/rejects with the return value of the new operation.
      */
-    addWaitlist(func) {
+     addWaitlist(func) {
         var oldwaitlist = this.waitlist;
         var callback;
         this.waitlist = new Promise(resolve => callback = resolve);
         var promise = oldwaitlist.then(typeof func == 'function' ? func : () => func);
         promise.finally(() => callback());
         return promise;
+    }
+}
+
+class MCAuthenticator extends Waitlistable {
+    /**
+     * Constructs a new MCAuthenticator.
+     * 
+     * In the constructor of a implementing class it must add a argument where the user can supply credentials.
+     * The constructor only stores the credentials and does not validate them or make any https requests. 
+     * That will happen in the login() method.
+     */
+    constructor() {
+        super();
+        if (this.constructor === MCAuthenticator) throw new Error("This is an abstract class");
+        this.keepAliveInterval = null;
+        /**
+         * The name of the user. A class MUST set this value after the login() method succeeds.
+         * @return {string}
+         */
+        this.name = null;
+        /**
+         * The uuid of the user. A class MUST set this value after the login() method succeeds.
+         * 
+         * The uuid is wihout dashes
+         * @returns {string}
+         */
+        this.uuid = null;
     }
 
     /**
@@ -301,9 +323,17 @@ function createSessionProxyServer(options) {
     }));
 }
 
+function parseCookies(cookies) {
+    if(!cookies) cookies = [];
+    if(!(cookies instanceof Array)) cookies = [cookies];
+    return cookies.map(x => /^\s*([a-zA-Z0-9_]+)\s*=\s*([^;]+)\s*/.exec(x)).filter(x => x && x[1] && x[2]).map(x => x[1] + '=' + x[2].trim()).join('; ');
+}
+
 module.exports = {
+    Waitlistable,
     MCAuthenticator,
     createCrackedSession,
     createSessionProxyServer,
-    makeHTTPSRequest
+    makeHTTPSRequest,
+    parseCookies
 };
