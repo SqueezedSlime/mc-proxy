@@ -97,12 +97,10 @@ class AlteningGenerateSession extends Waitlistable {
             headers: { 
                 'Accept': '*/*',
                 'Origin': 'https://thealtening.com',
-                'Sec-Fetch-Dest': 'empty',
-                'Sec-Fetch-Mode': 'cors',
-                'Sec-Fetch-Site': 'same-site',
                 'Referer': 'https://thealtening.com/'
             },
             supplyHeaders: true,
+            rejectUnauthorized: false,
             body: { captcha }
         }).then(res => {
             this.token = parseCookies(res.headers['set-cookie']);
@@ -117,13 +115,11 @@ class AlteningGenerateSession extends Waitlistable {
             path: '/free/validate',
             method: 'get',
             text: true,
+            rejectUnauthorized: false,
             headers: {
                 'Accept': '*/*',
                 'Cookie': this.token,
                 'Origin': 'https://thealtening.com',
-                'Sec-Fetch-Dest': 'empty',
-                'Sec-Fetch-Mode': 'cors',
-                'Sec-Fetch-Site': 'same-site',
                 'Referer': 'https://thealtening.com/'
             }
         }).then(() => true));
@@ -135,13 +131,11 @@ class AlteningGenerateSession extends Waitlistable {
             host: 'api.thealtening.com',
             path: '/free/generate',
             method: 'get',
+            rejectUnauthorized: false,
             headers: {
                 'Accept': '*/*',
                 'Cookie': this.token,
                 'Origin': 'https://thealtening.com',
-                'Sec-Fetch-Dest': 'empty',
-                'Sec-Fetch-Mode': 'cors',
-                'Sec-Fetch-Site': 'same-site',
                 'Referer': 'https://thealtening.com/'
             }
         }).then(res => {

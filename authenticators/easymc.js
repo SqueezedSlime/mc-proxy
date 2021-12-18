@@ -37,30 +37,48 @@ function redeemEasyMCToken(altToken) {
     }
 }
 
-function generateEasyMCToken(recaptcha) {
+//EasyMC identifies users based on IP not Cookies. So there is no EasyMC generate session.
+
+function generateEasyMCToken(recaptcha = '') {
     return makeHTTPSRequest({
         host: 'api.easymc.io',
         path: '/v1/token?new=true' + (recaptcha ? '&captcha=' + encodeURIComponent(recaptcha) : ''),
         method: 'get',
-        supplyHeaders: true,
         headers: { 
             'Accept': '*/*',
             'Origin': 'https://easymc.io',
-            'Sec-Fetch-Dest': 'empty',
-            'Sec-Fetch-Mode': 'cors',
-            'Sec-Fetch-Site': 'same-site',
             'Referer': 'https://easymc.io/'
         }
     }).then(res => {
-        if(res.headers && res.headers['set-cookie']) this.token = parseCookies(res.headers['set-cookie']);
         if(!res.token) throw new Error("No new token supplied");
         return res.token;
     });
+}
+
+function renewEasyMCToken(alttoken, recaptcha) {
+    return makeHTTPSRequest({
+        host: 'api.easymc.io',
+        path: '/v1/token/renew',
+        method: 'post',
+        headers: { 
+            'Accept': '*/*'
+        },
+        body: {
+            params: {
+                token: alttoken,
+                captcha: recaptcha
+            }
+        }
+    }).then(res => {
+        if(!res.token) throw new Error("No new token supplied");
+        return res.token;
+    })
 }
 
 module.exports = {
     EasyMCAuthenticator,
     redeemEasyMCToken,
     easyMCOptions,
-    generateEasyMCToken
+    generateEasyMCToken,
+    renewEasyMCToken
 }

@@ -1,13 +1,13 @@
 const https = require('https');
 const { createProxyServer, resolveMCSrvRecord } = require('../mc-proxy');
 
-function makeHTTPSRequest({ host, port, path, method, headers, body, text, supplyHeaders }) {
+function makeHTTPSRequest({ host, port, path, method, headers, body, text, supplyHeaders, rejectUnauthorized }) {
     var stack = new Error("Caused by");
     return (new Promise((resolve, reject) => {
         if (!headers) headers = {};
         if (body && typeof body === 'object') {
             body = JSON.stringify(body);
-            headers['Content-Type'] = 'application/json;utf-8';
+            headers['Content-Type'] = 'application/json';
         }
         if (!headers["Accept"]) headers["Accept"] = "application/json";
         if(!headers['User-Agent']) headers['User-Agent'] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.45 Safari/537.36";
@@ -15,7 +15,8 @@ function makeHTTPSRequest({ host, port, path, method, headers, body, text, suppl
         if (!method) method = 'GET';
         if (body) body = Buffer.from(String(body), 'utf-8');
         if (body) headers['Content-Length'] = String(body.length);
-        var req = https.request({ host, port, path, method, headers, rejectUnauthorized: false }, res => {
+        if(typeof rejectUnauthorized !== 'boolean') rejectUnauthorized = true;
+        var req = https.request({ host, port, path, method, headers, rejectUnauthorized }, res => {
             var data = [];
             var len = 0;
             res.on('error', ex => reject(ex));
@@ -323,10 +324,14 @@ function createSessionProxyServer(options) {
     }));
 }
 
-function parseCookies(cookies) {
+function parseCookies(cookies, saved = '') {
     if(!cookies) cookies = [];
     if(!(cookies instanceof Array)) cookies = [cookies];
-    return cookies.map(x => /^\s*([a-zA-Z0-9_]+)\s*=\s*([^;]+)\s*/.exec(x)).filter(x => x && x[1] && x[2]).map(x => x[1] + '=' + x[2].trim()).join('; ');
+    var changed = [];
+    return cookies.map(x => /^\s*([a-zA-Z0-9_]+)\s*=\s*([^;]+)\s*/.exec(x)).filter(x => x && x[1] && x[2]).map(x => {
+        changed.push(x[1].trim());
+        return x[1].trim() + '=' + x[2].trim(); 
+    }).concat(saved ? String(saved).split(';').map(x => x.split('=')).filter(x => x && x[0] && x[1]).map(x => [x[0], ...x.slice(1)]).filter(x => !changed.includes(x[0].trim())).map(x => x[0].trim() + '=' + x[1].trim()) : []).join('; ');
 }
 
 module.exports = {

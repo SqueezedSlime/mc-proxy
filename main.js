@@ -81,6 +81,7 @@ function retrieveUserCaptchaCode(host, sitekey) {
                     if(parsed[1] == host) throw new Error("Invalid host url");
                     var httpRequest = https.request({
                         host: parsed[1],
+                        port: 443,
                         path: '/' + parsed[2],
                         method: request.method,
                         headers: request.headers

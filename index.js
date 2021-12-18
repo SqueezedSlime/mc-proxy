@@ -4,12 +4,13 @@ const { createCrackedSession } = require('./authenticators/base');
 const { loginMojangAccount, sessionFromAccesToken } = require('./authenticators/mojang');
 const { loginMicrosoftAccount } = require('./authenticators/microsoft');
 const { redeemAlteningToken, AlteningGenerateSession } = require('./authenticators/altening');
-const { redeemEasyMCToken, generateEasyMCToken } = require('./authenticators/easymc')
-const { redeemMCLeakToken, generateMCLeakToken } = require('./authenticators/mcleak');
+const { redeemEasyMCToken, generateEasyMCToken, renewEasyMCToken } = require('./authenticators/easymc')
+const { redeemMCLeakToken, MCLeakGenerateSession } = require('./authenticators/mcleak');
 const { bindMulticastClient } = require('./mc-multicast')
 
 var getEl = document.getElementById.bind(document);
 var alteningGenerator = new AlteningGenerateSession();
+var mcleakGenerator = new MCLeakGenerateSession();
 
 var elements = {
     authentication_type: getEl('authentication_type'),
@@ -28,7 +29,8 @@ var elements = {
     host: getEl('mc_host'),
     button: getEl('mc_play_button'),
     server_status: getEl('mc_server_status'),
-    generate_token: getEl('generate_token_button')
+    generate_token: getEl('generate_token_button'),
+    renew_token: getEl('renew_token_button')
 }
 
 var windowPromise = Promise.resolve();
@@ -53,6 +55,7 @@ function setAuthServer(value) {
         elements.password_block.style.display = 'none';
         elements.token_block.style.display = 'none';
         elements.generate_token.style.display = 'none';
+        elements.renew_token.style.display = 'none';
         return;
     case 'cracked':
         elements.password_block.style.display = 'none';
@@ -62,6 +65,7 @@ function setAuthServer(value) {
         elements.name.placeholder = 'Username for server';
         elements.credentials_block.style.display = 'block';
         elements.generate_token.style.display = 'none';
+        elements.renew_token.style.display = 'none';
         return;
     case 'altening':
         elements.name.maxLength = 512;
@@ -71,6 +75,7 @@ function setAuthServer(value) {
         elements.name.placeholder = 'Alt token from thealtening.com'
         elements.credentials_block.style.display = 'block';
         elements.generate_token.style.display = 'block';
+        elements.renew_token.style.display = 'none';
         return;
     case 'easymc':
         elements.name.maxLength = 512;
@@ -80,6 +85,7 @@ function setAuthServer(value) {
         elements.name.placeholder = 'Alt token from easymc.io'
         elements.credentials_block.style.display = 'block';
         elements.generate_token.style.display = 'block';
+        elements.renew_token.style.display = 'block';
         return;
     case 'mcleaks':
         elements.name.maxLength = 512;
@@ -89,6 +95,7 @@ function setAuthServer(value) {
         elements.name.placeholder = 'Alt token from mcleaks.net'
         elements.credentials_block.style.display = 'block';
         elements.generate_token.style.display = 'block';
+        elements.renew_token.style.display = 'block';
         return;
     case 'token':
         elements.name.maxLength = 512;
@@ -98,6 +105,7 @@ function setAuthServer(value) {
         elements.name.placeholder = 'In-game username or UUID (not e-mail)'
         elements.credentials_block.style.display = 'block';
         elements.generate_token.style.display = 'none';
+        elements.renew_token.style.display = 'none';
         return;
     default:
         elements.name.maxLength = 512;
@@ -107,6 +115,7 @@ function setAuthServer(value) {
         elements.name.placeholder = 'Your username/e-mail'
         elements.credentials_block.style.display = 'block';
         elements.generate_token.style.display = 'none';
+        elements.renew_token.style.display = 'none';
         return;
     }
 }
@@ -260,7 +269,6 @@ function onButtonClick() {
             }).then(res => {
                 var txt = parsePingMotdObject(res.data.description || {});
                 motd = "Version: " + res.data.version.name +  "\nMOTD: " + txt[0] + "\nMOTD: " + txt[1] + "\nPlayers: " + res.data.players.online + "/" + res.data.players.max + "\nPing: " + String(res.ping) + "ms";
-                //getServerPublicKey({ host, port, protocolVersion: res.data.version.protocol }).then(x => console.log(x)).catch(x => console.error(x));
                 var promise;
                 switch(elements.authentication_type.value) {
                 case 'mojang':
@@ -329,6 +337,18 @@ function onButtonClick() {
     }
 }
 
+function retrieveAlteningCaptchaCode() {
+    return retrieveUserCaptchaCode('thealtening.com', '6LcvulQUAAAAALiRGtcfohNRfk-UQGolutRdQBFL')
+}
+
+function retrieveMCLeakCaptchaCode() {
+    return retrieveUserCaptchaCode('mcleaks.net', '6Lc01gkTAAAAAIKbJuNejSIoQR-2ihS3N0-sOBiI');
+}
+
+function retrieveEasyMCCaptchaCode() {
+    return retrieveUserCaptchaCode('easymc.io', '6Lffq-YUAAAAAI8_bb1q1bln6-CD-gtqPj2FryfQ');
+}
+
 function generateToken() {
     elements.name.value = '';
     elements.generate_token.disabled = true;
@@ -338,7 +358,7 @@ function generateToken() {
             if(valid) {
                 return alteningGenerator.generateToken();
             } else {
-                return retrieveUserCaptchaCode('thealtening.com', '6LcvulQUAAAAALiRGtcfohNRfk-UQGolutRdQBFL')
+                return retrieveAlteningCaptchaCode()
                 .then(code => code ? alteningGenerator.authenticate(code) : false)
                 .then(res => 
                     res !== false ? 
@@ -352,8 +372,11 @@ function generateToken() {
         .finally(() => elements.generate_token.disabled = false);
         break;
     case 'mcleaks':
-        retrieveUserCaptchaCode('mcleaks.net', '6Lc01gkTAAAAAIKbJuNejSIoQR-2ihS3N0-sOBiI')
-        .then(code => code && generateMCLeakToken(code))
+        mcleakGenerator.refresh().then(() => mcleakGenerator.generateToken()).catch(ex => {
+            console.info(ex);
+            return retrieveMCLeakCaptchaCode()
+            .then(code => code && mcleakGenerator.generateToken(code))
+        })
         .then(code => { if(code) elements.name.value = code; })
         .catch(ex => { console.error(ex); alert(ex.message); })
         .finally(() => elements.generate_token.disabled = false);
@@ -361,12 +384,42 @@ function generateToken() {
     case 'easymc':
         generateEasyMCToken().catch(ex => {
             console.info(ex);
-            return retrieveUserCaptchaCode('easymc.io', '6Lffq-YUAAAAAI8_bb1q1bln6-CD-gtqPj2FryfQ')
+            return retrieveEasyMCCaptchaCode()
             .then(code => code && generateEasyMCToken(code))
         })
         .then(code => { if(code) elements.name.value = code; })
         .catch(ex => { console.error(ex); alert(ex.message); })
         .finally(() => elements.generate_token.disabled = false);
+        break;
+    default:
+        elements.generate_token.disabled = false;
+        break;
+    }
+}
+
+function renewToken() {
+    var token = elements.name.value;
+    if(!token) {
+        alert("You need to give a expired/used token to renew it");
+        return;
+    }
+    switch(elements.authentication_type.value) {
+    case 'mcleaks':
+        retrieveMCLeakCaptchaCode()
+        .then(code => code && mcleakGenerator.renewToken(token, code))
+        .then(code => { if(code) elements.name.value = code; })
+        .catch(ex => { console.error(ex); alert(ex.message); })
+        .finally(() => elements.generate_token.disabled = false);
+        break;
+    case 'easymc':
+        retrieveEasyMCCaptchaCode()
+        .then(code => code && renewEasyMCToken(token, code))
+        .then(code => { if(code) elements.name.value = code; })
+        .catch(ex => { console.error(ex); alert(ex.message); })
+        .finally(() => elements.generate_token.disabled = false);
+        break;
+    default:
+        elements.generate_token.disabled = false;
         break;
     }
 }

@@ -1,6 +1,6 @@
 //Mcleaks (unlike thealtenticator) provides their api: see: https://mcleaks.net/apidoc
 
-const { MCAuthenticator, makeHTTPSRequest, parseCookies } = require('./base');
+const { Waitlistable, MCAuthenticator, makeHTTPSRequest, parseCookies } = require('./base');
 
 function makeMCLeakRequest(endpoint, body) {
     return makeHTTPSRequest({ host: 'auth.mcleaks.net', method: body == null ? 'GET' : 'POST', path: '/v1/' + endpoint, body });
@@ -70,37 +70,136 @@ function redeemMCLeakToken(altToken) {
     }
 }
 
-function generateMCLeakToken(recaptchaCode) {
-    return makeHTTPSRequest({
-        host: 'mcleaks.net',
-        path: '/get',
-        method: 'post',
-        text: true,
-        supplyHeaders: true,
-        headers: {
+class MCLeakGenerateSession extends Waitlistable {
+    constructor() {
+        super();
+    }
+
+    generateToken(recaptchaCode = '') {
+        var req = {
+            host: 'mcleaks.net',
+            path: '/get',
+            method: 'post',
+            text: true,
+            supplyHeaders: true,
+            body: 'posttype=true',
+            headers: {
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Accept": "*/*",
+                "Origin": "https://mcleaks.net",
+                "Referer": "https://mcleaks.net/"
+            }
+        };
+        if(this.token) req.headers.Cookie = this.token;
+        if(recaptchaCode) { 
+            req.body = "posttype=true&g-recaptcha-response=" + encodeURIComponent(recaptchaCode); 
+        }
+
+        return this.addWaitlist(() => makeHTTPSRequest(req).then(res => {
+            var token = parseCookies(res.headers['set-cookie'], this.token);
+            if(!token) throw new Error("No cookies provided from MCLeaks");
+            this.token = token;
+            if(res && res.redirect) {
+                return makeHTTPSRequest({
+                    host: 'mcleaks.net',
+                    path: '/get',
+                    method: 'get',
+                    text: true,
+                    supplyHeaders: true,
+                    headers: {
+                        "Accept": "*/*",
+                        "Cookie": token,
+                        "Referer": "https://mcleaks.net/"
+                    }
+                })
+            } else return res;
+        }).then(res => {
+            if(!res) throw new Error("No response received");
+            var token = parseCookies(res.headers['set-cookie'], this.token);
+            if(!token) throw new Error("No cookies provided from MCLeaks");
+            this.token = token;
+            res = res.data;
+            var found = /<input.*id="alttoken".*value="([a-zA-Z0-9]+)"/.exec(String(res));
+            if(!found || !found[1]) throw new Error("No token found in response");
+            return found[1];
+        }));
+    }
+
+    refresh() {
+        var headers = {
+            "Accept": "*/*",
+            "Origin": "https://mcleaks.net",
+            "Referer": "https://mcleaks.net/get"
+        };
+        if(this.token) headers.Cookie = this.token;
+        return this.addWaitlist(() => makeHTTPSRequest({
+            host: 'mcleaks.net',
+            path: '/getajax?refresh',
+            method: 'get', //json
+            text: true,
+            supplyHeaders: true,
+            headers
+        }).then(res => {
+            if(!res) throw new Error("No response received");
+            var token = parseCookies(res.headers['set-cookie'], this.token);
+            if(!token) throw new Error("No cookies provided from MCLeaks");
+            this.token = token;
+            return true;
+        }));
+    }
+
+    renewToken(alttoken, recaptchaCode) {
+        var headers = {
             "Content-Type": "application/x-www-form-urlencoded",
-            "Accept": "text/html"
-        },
-        body: "posttype=false&g-recaptcha-response=" + encodeURIComponent(recaptchaCode)
-    }).then(res => {
-        if(res && res.redirect) {
+            "Origin": "https://mcleaks.net",
+            "Referer": "https://mcleaks.net/renew"
+        };
+        if(this.token) headers.Cookie = this.token;
+        return this.addWaitlist(() => makeHTTPSRequest({
+            host: 'mcleaks.net',
+            path: "renew?_=" + new Date().getTime(),
+            method: 'post',
+            text: true,
+            supplyHeaders: true,
+            headers,
+            body: 'alttoken=' + encodeURIComponent(alttoken) + '&captcha=' + encodeURIComponent(recaptchaCode)
+        }).then(res => {
+            if(!res) throw new Error("No response received");
+            var token = parseCookies(res.headers['set-cookie'], this.token);
+            if(!token) throw new Error("No cookies provided from MCLeaks");
+            this.token = token;
             return makeHTTPSRequest({
                 host: 'mcleaks.net',
-                path: res.redirect,
+                path: '/get',
                 method: 'get',
                 text: true,
+                supplyHeaders: true,
                 headers: {
-                    "Accept": "text/html",
-                    "Cookie": parseCookies(res.headers['set-cookie'])
+                    "Accept": "*/*",
+                    "Cookie": token,
+                    "Referer": "https://mcleaks.net/renew"
                 }
-            })
-        } else return res;
-    }).then(res => {
-        if(!res) throw new Error("No response received");
-        var found = /<input.*id="alttoken".*value="([a-zA-Z0-9]+)"/.exec(String(res));
-        if(!found || !found[1]) throw new Error("No token found in response");
-        return found[1];
-    })
+            });
+        }).then(res => {
+            if(!res) throw new Error("No response received");
+            var token = parseCookies(res.headers['set-cookie'], this.token);
+            if(!token) throw new Error("No cookies provided from MCLeaks");
+            this.token = token;
+            res = res.data;
+            var found = /<input.*id="alttoken".*value="([a-zA-Z0-9]+)"/.exec(String(res));
+            if(!found || !found[1]) throw new Error("No token found in response");
+            return found[1];
+        }));
+    }
+
 }
 
-module.exports = { MCLeakAuthenticator, redeemMCLeakToken, generateMCLeakToken };
+function generateMCLeakToken(recaptchaCode) {
+    return (new MCLeakGenerateSession()).generateToken(recaptchaCode);
+}
+
+function renewMCLeakToken(alttoken, recaptchaCode) {
+    return (new MCLeakGenerateSession()).renew(alttoken, recaptchaCode);
+}
+
+module.exports = { MCLeakAuthenticator, redeemMCLeakToken, MCLeakGenerateSession, generateMCLeakToken, renewMCLeakToken };
