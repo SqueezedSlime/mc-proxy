@@ -35,12 +35,12 @@ class MCLeakAuthenticator extends MCAuthenticator {
         });
     }
 
-    /**
-     * Refresh an MCLeaks token
-     * @returns {Promise}
-     */
+    validate() {
+        return this.signServerHash('-25c65c11a194b4f2cdaa40106a9fe76f5027f8f7');
+    }
+
     refresh() {
-        return this.signServerHash('0');
+        return this.validate();
     }
 
     signServerHash(serverId) {
