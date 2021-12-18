@@ -53,9 +53,29 @@ There are three ways to install it (see https://github.com/SqueezedSlime/mc-prox
 
     Click the electron executable in the root folder to start the app.
 
+# Features
+
+1. Easy to use
+
+2. Mods or modified launchers are not required.
+
+3. Let your friend play with your (alt) account, without giving the credentials.
+
+4. Tons of alts from 3 major alt servers: MCLeaks, EasyMC and The altening
+
+5. Switch very quickly between alt accounts
+
+6. Don't let your account be exposed to alt servers or the minecraft server
+   
+   By using the Proxy as server IP instead of the real server IP it is harder to accidentally expose your MC account to the server, because you always connect to the proxy server. If the proxy server is offline, you simply can't connect until you change the IP of the server. If you also use a VPN with a kill switch, you have less chance that your IP is exposed.
+
+7. Save your alts
+
+![Saved alts](screenshots/saving-alts.png.PNG?raw=true "Saved alts on the proxy")
 
 # About the proxy
 
 Play using ALTS on your own risk, you do not own those accounts and they can be removed anytime. To get a legit ALT, buy one from minecraft.net (on all other sites, your alt is never 100% permanent). Anyway playing with these alts can be still fun.
 
 This program does not need administrator/root permission. The windows setup program may ask for admin permissions to install it in the programs directory. If you don't want to give that permission, you can also download the zip file instead.
+
