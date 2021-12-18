@@ -16,7 +16,7 @@ function makeHTTPSRequest({ host, port, path, method, headers, body, text, suppl
         if (body) body = Buffer.from(String(body), 'utf-8');
         if (body) headers['Content-Length'] = String(body.length);
         if(typeof rejectUnauthorized !== 'boolean') rejectUnauthorized = true;
-        var req = https.request({ host, port, path, method, headers, rejectUnauthorized }, res => {
+        var req = https.request({ host, port, path, method, headers, rejectUnauthorized, timeout: 4000 }, res => {
             var data = [];
             var len = 0;
             res.on('error', ex => reject(ex));
@@ -66,7 +66,7 @@ function makeHTTPSRequest({ host, port, path, method, headers, body, text, suppl
                     reject(ex);
                 }
             });
-        }).on('error', err => reject(err));
+        }).on('error', err => reject(err)).on('close', () => reject(new Error("Closed")));
         if (body) req.write(body);
         req.end();
     })).catch(ex => {
