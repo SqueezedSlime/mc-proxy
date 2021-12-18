@@ -157,7 +157,7 @@ class MCLeakGenerateSession extends Waitlistable {
         if(this.token) headers.Cookie = this.token;
         return this.addWaitlist(() => makeHTTPSRequest({
             host: 'mcleaks.net',
-            path: "renew?_=" + new Date().getTime(),
+            path: "/renew?_=" + new Date().getTime(),
             method: 'post',
             text: true,
             supplyHeaders: true,
