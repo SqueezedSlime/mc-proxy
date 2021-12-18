@@ -309,7 +309,7 @@ function loadAccountSession() {
         break;
     case 'saved':
         let sess = savedSessions[elements.saved_alts.value];
-        promise = sess ? Promise.resolve(sess) : Promise.reject(new Error("No account selected"));
+        promise = sess ? sess.validate().then(() => sess) : Promise.reject(new Error("No account selected"));
         break;
     default:
         promise = Promise.reject(new Error('Unknown authentication type'));

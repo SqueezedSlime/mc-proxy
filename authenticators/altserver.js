@@ -217,7 +217,6 @@ class AltServerAuthenticator extends MCAuthenticator {
                 if(res !== null) throw new Error("Expected 204 if valid");
                 return true;
             }, () => false)
-            .finally(() => callback())
         );
     }
 
