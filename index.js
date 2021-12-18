@@ -350,6 +350,7 @@ function retrieveEasyMCCaptchaCode() {
 }
 
 function generateToken() {
+    if(elements.generate_token.disabled) return;
     elements.name.value = '';
     elements.generate_token.disabled = true;
     switch(elements.authentication_type.value) {
@@ -398,6 +399,7 @@ function generateToken() {
 }
 
 function renewToken() {
+    if(elements.renew_token.disabled) return;
     var token = elements.name.value;
     if(!token) {
         alert("You need to give a expired/used token to renew it");
@@ -409,17 +411,17 @@ function renewToken() {
         .then(code => code && mcleakGenerator.renewToken(token, code))
         .then(code => { if(code) elements.name.value = code; })
         .catch(ex => { console.error(ex); alert(ex.message); })
-        .finally(() => elements.generate_token.disabled = false);
+        .finally(() => elements.renew_token.disabled = false);
         break;
     case 'easymc':
         retrieveEasyMCCaptchaCode()
         .then(code => code && renewEasyMCToken(token, code))
         .then(code => { if(code) elements.name.value = code; })
         .catch(ex => { console.error(ex); alert(ex.message); })
-        .finally(() => elements.generate_token.disabled = false);
+        .finally(() => elements.renew_token.disabled = false);
         break;
     default:
-        elements.generate_token.disabled = false;
+        elements.renew_token.disabled = false;
         break;
     }
 }
