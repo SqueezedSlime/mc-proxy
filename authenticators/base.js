@@ -189,6 +189,7 @@ class MCAuthenticator extends Waitlistable {
         } else {
             if (!this.keepAliveInterval) return;
             clearInterval(this.keepAliveInterval);
+            this.keepAliveInterval = null;
         }
     }
 

@@ -11,6 +11,7 @@ const { bindMulticastClient } = require('./mc-multicast')
 var getEl = document.getElementById.bind(document);
 var alteningGenerator = new AlteningGenerateSession();
 var mcleakGenerator = new MCLeakGenerateSession();
+var savedSessions = {};
 
 var elements = {
     authentication_type: getEl('authentication_type'),
@@ -30,7 +31,10 @@ var elements = {
     button: getEl('mc_play_button'),
     server_status: getEl('mc_server_status'),
     generate_token: getEl('generate_token_button'),
-    renew_token: getEl('renew_token_button')
+    renew_token: getEl('renew_token_button'),
+    save_token: getEl('save_token_button'),
+    saved_alts_block: getEl('mc_saved_alts_block'),
+    saved_alts: getEl('mc_saved_alts')
 }
 
 var windowPromise = Promise.resolve();
@@ -46,16 +50,32 @@ function retrieveUserCaptchaCode(host, sitekey) {
     return promise;
 }
 
+function renderSavedAccounts() {
+    elements.saved_alts.innerHTML = '';
+    for(var altName in savedSessions) {
+        let el = document.createElement('option');
+        el.value = altName;
+        el.textContent = altName;
+        elements.saved_alts.appendChild(el);
+    }
+}
+
 function setAuthServer(value) {
     elements.password.value = '';
     elements.token.value = '';
+    elements.saved_alts_block.style.display = value == 'saved' ? 'block' : 'none';
     switch(value) {
+    case 'saved':
+        renderSavedAccounts();
+
+        //fallthrough (set all elements to display none)
     case 'microsoft':
         elements.credentials_block.style.display = 'none';
         elements.password_block.style.display = 'none';
         elements.token_block.style.display = 'none';
         elements.generate_token.style.display = 'none';
         elements.renew_token.style.display = 'none';
+        elements.save_token.style.display = 'none';
         return;
     case 'cracked':
         elements.password_block.style.display = 'none';
@@ -66,6 +86,7 @@ function setAuthServer(value) {
         elements.credentials_block.style.display = 'block';
         elements.generate_token.style.display = 'none';
         elements.renew_token.style.display = 'none';
+        elements.save_token.style.display = 'none';
         return;
     case 'altening':
         elements.name.maxLength = 512;
@@ -76,6 +97,7 @@ function setAuthServer(value) {
         elements.credentials_block.style.display = 'block';
         elements.generate_token.style.display = 'block';
         elements.renew_token.style.display = 'none';
+        elements.save_token.style.display = 'block';
         return;
     case 'easymc':
         elements.name.maxLength = 512;
@@ -86,6 +108,7 @@ function setAuthServer(value) {
         elements.credentials_block.style.display = 'block';
         elements.generate_token.style.display = 'block';
         elements.renew_token.style.display = 'block';
+        elements.save_token.style.display = 'block';
         return;
     case 'mcleaks':
         elements.name.maxLength = 512;
@@ -96,6 +119,7 @@ function setAuthServer(value) {
         elements.credentials_block.style.display = 'block';
         elements.generate_token.style.display = 'block';
         elements.renew_token.style.display = 'block';
+        elements.save_token.style.display = 'block';
         return;
     case 'token':
         elements.name.maxLength = 512;
@@ -106,6 +130,7 @@ function setAuthServer(value) {
         elements.credentials_block.style.display = 'block';
         elements.generate_token.style.display = 'none';
         elements.renew_token.style.display = 'none';
+        elements.save_token.style.display = 'none';
         return;
     default:
         elements.name.maxLength = 512;
@@ -116,6 +141,7 @@ function setAuthServer(value) {
         elements.credentials_block.style.display = 'block';
         elements.generate_token.style.display = 'none';
         elements.renew_token.style.display = 'none';
+        elements.save_token.style.display = 'none';
         return;
     }
 }
@@ -236,11 +262,69 @@ ipcRenderer.on('auth-failed', (e, message) => {
     if(message) alert(message);
 });
 
+function loadAccountSession() {
+    var promise;
+    switch(elements.authentication_type.value) {
+    case 'mojang':
+        promise = loginMojangAccount(elements.name.value, elements.password.value)
+        break;
+    case 'microsoft':
+        promise = Promise.reject("Microsoft authentication requires a window");
+        break;
+    case 'cracked':
+        promise = Promise.resolve(createCrackedSession(elements.name.value));
+        break;
+    case 'altening':
+        if(redeemedSession.type == 'altening' && redeemedSession.token == elements.name.value) {
+            promise = redeemedSession.session.refresh().then(() => redeemedSession.session, ex => redeemAlteningToken(elements.name.value));
+        } else {
+            if(redeemedSession.session && !redeemedSession.session.saved) redeemedSession.session.keepAlive(false);
+            let alttoken = elements.name.value;
+            promise = redeemAlteningToken(alttoken);
+            promise.then(session => {session.noInvalidate = true; redeemedSession = {type: 'altening', token: alttoken, session};});
+        }
+        break;
+    case 'easymc':
+        if(redeemedSession.type == 'easymc' && redeemedSession.token == elements.name.value) {
+            promise = redeemedSession.session.refresh().then(() => redeemedSession.session, ex => redeemEasyMCToken(elements.name.value));
+        } else {
+            if(redeemedSession.session && !redeemedSession.session.saved) redeemedSession.session.keepAlive(false);
+            let alttoken = elements.name.value;
+            promise = redeemEasyMCToken(alttoken);
+            promise.then(session => {session.noInvalidate = true; redeemedSession = {type: 'easymc', token: alttoken, session};});
+        }
+        break;
+    case 'mcleaks':
+        if(redeemedSession.type == 'mcleaks' && redeemedSession.token == elements.name.value) {
+            promise = redeemedSession.session.refresh().then(() => redeemedSession.session, ex => redeemMCLeakToken(elements.name.value));
+        } else {
+            if(redeemedSession.session && !redeemedSession.session.saved) redeemedSession.session.keepAlive(false);
+            let alttoken = elements.name.value;
+            promise = redeemMCLeakToken(alttoken);
+            promise.then(session => {session.noInvalidate = true; redeemedSession = {type: 'mcleaks', token: alttoken, session};});
+        }
+        break;
+    case 'token':
+        promise = sessionFromAccesToken(elements.token.value, elements.name.value);
+        break;
+    case 'saved':
+        let sess = savedSessions[elements.saved_alts.value];
+        promise = sess ? Promise.resolve(sess) : Promise.reject(new Error("No account selected"));
+        break;
+    default:
+        promise = Promise.reject(new Error('Unknown authentication type'));
+        break;
+    }
+    return promise;
+}
+
 function onButtonClick() {
     if(authOpen) return;
     if(proxyServer) {
         proxyServer.close();
         proxyServer = null;
+        if(!session.noInvalidate) session.keepAlive(false);
+        session = null;
         elements.server_status.innerText = '';
         elements.button.innerText = 'Start';
     } else {
@@ -269,63 +353,19 @@ function onButtonClick() {
             }).then(res => {
                 var txt = parsePingMotdObject(res.data.description || {});
                 motd = "Version: " + res.data.version.name +  "\nMOTD: " + txt[0] + "\nMOTD: " + txt[1] + "\nPlayers: " + res.data.players.online + "/" + res.data.players.max + "\nPing: " + String(res.ping) + "ms";
-                var promise;
-                switch(elements.authentication_type.value) {
-                case 'mojang':
-                    promise = loginMojangAccount(elements.name.value, elements.password.value)
-                    break;
-                case 'microsoft':
+                if(elements.authentication_type.value == 'microsoft') {
                     ipcRenderer.send('microsoft-auth');
                     return;
-                case 'cracked':
-                    promise = Promise.resolve(createCrackedSession(elements.name.value));
-                    break;
-                case 'altening':
-                    if(redeemedSession.type == 'altening' && redeemedSession.token == elements.name.value) {
-                        promise = redeemedSession.session.refresh().then(() => redeemedSession.session, ex => redeemAlteningToken(elements.name.value));
-                    } else {
-                        let alttoken = elements.name.value;
-                        promise = redeemAlteningToken(alttoken);
-                        promise.then(session => {session.noInvalidate = true; redeemedSession = {type: 'altening', token: alttoken, session};});
-                    }
-                    break;
-                case 'easymc':
-                    if(redeemedSession.type == 'easymc' && redeemedSession.token == elements.name.value) {
-                        promise = redeemedSession.session.refresh().then(() => redeemedSession.session, ex => redeemEasyMCToken(elements.name.value));
-                    } else {
-                        let alttoken = elements.name.value;
-                        promise = redeemEasyMCToken(alttoken);
-                        promise.then(session => {session.noInvalidate = true; redeemedSession = {type: 'easymc', token: alttoken, session};});
-                    }
-                    break;
-                case 'mcleaks':
-                    if(redeemedSession.type == 'mcleaks' && redeemedSession.token == elements.name.value) {
-                        promise = redeemedSession.session.refresh().then(() => redeemedSession.session, ex => redeemMCLeakToken(elements.name.value));
-                    } else {
-                        let alttoken = elements.name.value;
-                        promise = redeemMCLeakToken(alttoken);
-                        promise.then(session => {session.noInvalidate = true; redeemedSession = {type: 'mcleaks', token: alttoken, session};});
-                    }
-                    break;
-                case 'token':
-                    promise = sessionFromAccesToken(elements.token.value, elements.name.value);
-                    break;
-                default:
-                    authOpen = false;
-                    elements.button.innerText = 'Start';
-                    alert('Unknown authentication type');
-                    return;
                 }
-                return promise.then(session => startServer(session)).catch(ex => { console.error(ex); alert(ex.message); elements.button.innerText = 'Start'; }).finally(() => {
+                return loadAccountSession().then(session => startServer(session)).catch(ex => { console.error(ex); alert(ex.message); elements.button.innerText = 'Start'; }).finally(() => {
                     authOpen = false;
                 });
             }).catch(ex => {
                 console.error(ex);
                 alert(ex.message);
-            }).finally(() => {
                 authOpen = false;
                 elements.button.innerText = 'Start';
-            });
+            })
             elements.button.innerText = 'Starting...';
         } catch(ex) {
             authOpen = false;
@@ -424,4 +464,39 @@ function renewToken() {
         elements.renew_token.disabled = false;
         break;
     }
+}
+
+function saveToken() {
+    if(elements.save_token.disabled) return;
+    var type = elements.authentication_type.value;
+    if(!['mcleaks', 'altening', 'easymc'].includes(type)) return;
+    var token = elements.name.value;
+    if(!token) {
+        alert("You need to give a expired/used token to save it");
+        return;
+    }
+    elements.save_token.disabled = true;
+    loadAccountSession().then(session => {
+        session.saved = true;
+        session.keepAlive(true);
+        var name = type + " - " + session.name;
+        savedSessions[name] = session;
+        elements.authentication_type.value = 'saved';
+        setAuthServer('saved');
+        elements.saved_alts.value = name;
+    }).catch(ex => {
+        console.error(ex);
+        alert(ex.message);
+    }).finally(() => elements.save_token.disabled = false);
+}
+
+function deleteToken() {
+    if(elements.authentication_type.value != 'saved') return;
+    var sess = savedSessions[elements.saved_alts.value];
+    if(sess) {
+        sess.saved = false;
+        if(sess != session) sess.keepAlive(false);
+    }
+    delete savedSessions[elements.saved_alts.value];
+    renderSavedAccounts();
 }

@@ -9,10 +9,11 @@
                 <option value="mojang">Mojang</option>
                 <option value="microsoft">Microsoft</option>
                 <option value="cracked">Cracked</option>
+                <option value="token">Access token</option>
                 <option value="altening">Altening</option>
                 <option value="easymc">EasyMC</option>
                 <option value="mcleaks">MCLeaks</option>
-                <option value="token">Access token</option>
+                <option value="saved">Saved ALTs</option>
             </select>
             <div id="mc_credentials">
                 <div id="mc_token_block" style="display: none;">
@@ -23,10 +24,15 @@
                 <input id="mc_credentials_name" name="mc_credentials_name" type="text" placeholder="Your username/e-mail" />
                 <a href="#" id="generate_token_button" onclick="generateToken();" style="display: none;">Generate a new token</a>
                 <a href="#" id="renew_token_button" onclick="renewToken();" style="display: none;">Renew the token</a>
+                <a href="#" id="save_token_button" onclick="saveToken();" style="display: none;">Save the token</a>
                 <div id="mc_credentials_password_block">
                     <label for="mc_credentials_password">Password</label>
                     <input id="mc_credentials_password" name="mc_credentials_password" type="password" placeholder="Your mojang password" />
                 </div>
+            </div>
+            <div id="mc_saved_alts_block" style="display: none;">
+                <select id="mc_saved_alts" size="10"></select>
+                <a href="#" onclick="deleteToken();">Delete the alt</a> 
             </div>
             <label for="server_type">Proxy server type</label>
             <select name="server_type" id="server_type" onchange="setServerType(this.value)" value="host">
