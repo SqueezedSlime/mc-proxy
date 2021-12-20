@@ -238,7 +238,7 @@ class MCAuthenticator extends Waitlistable {
      * @param {undefined | null | string[]} whitelist empty array if premium account is necessary, null if the proxy server is in offline mode, non empty if you only allow specific players (with premium accounts). Undefined if default (localhost offline, rest online)
      * @returns 
      */
-    createProxyServer(host, port, whitelist = undefined, sharedSecret) {
+    createProxyServer(host, port, whitelist = undefined, sharedSecret, displayHost = null) {
         if (whitelist === undefined) {
             if (host == 'localhost' || host.startsWith('127.')) {
                 whitelist = null;
@@ -252,9 +252,11 @@ class MCAuthenticator extends Waitlistable {
         var hostPromise = resolveMCSrvRecord(host);
 
         return createSessionProxyServer(async request => {
+            var host = (await hostPromise).name;
             var req = ({
-                host: (await hostPromise).name,
+                host: host,
                 port: ((await hostPromise).port) || port,
+                displayHost: displayHost || host,
                 cracked: isOffline,
                 getSecret: typeof sharedSecret === 'function' ? sharedSecret : async () => sharedSecret,
                 getSession: async () => this,

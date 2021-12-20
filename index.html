@@ -10,6 +10,7 @@
                 <option value="microsoft">Microsoft</option>
                 <option value="cracked">Cracked</option>
                 <option value="token">Access token</option>
+                <option value="serverhash">Sign serverhash</option>
                 <option value="altening">Altening</option>
                 <option value="easymc">EasyMC</option>
                 <option value="mcleaks">MCLeaks</option>
@@ -51,6 +52,18 @@
             </div>
             <label for="mc_host">Destination server</label>
             <input id="mc_host" name="mc_host" type="text" placeholder="Server you want to connect to e.g mc.hypixel.net" />
+
+            <div id="mc_serverhash_block" style="display: none;">
+                <p>Note: This will NOT work if the server load balance inside its own network (very large servers). Because then the public key will change and the server hash is not valid when you join. It is not possible to sign the hash while you are joining, because a timeout will occur very fast before you could sign it.</p>
+                <label for="mc_serverip">Selected server IPv4</label>
+                <input id="mc_serverip" type="text" readonly="readonly" placeholder="Selected server IPv4 x.x.x.x"></input>
+                <label for="mc_serverhash">Serverhash to sign</label>
+                <input id="mc_serverhash" type="text" readonly="readonly" placeholder="Serverhash that you can manually sign to join" />
+                <label for="mc_publickey">RSA Public key of the server</label>
+                <input id="mc_publickey" type="text" readonly="readonly" placeholder="RSA Public key" />
+                <label for="mc_servername">Server name (can be empty)</label>
+                <input id="mc_servername" type="text" readonly="readonly" placeholder="MC server name for encryption" />
+            </div>
 
             <button id="mc_play_button" type="submit" onclick="onButtonClick()">Start</button>
             <br />

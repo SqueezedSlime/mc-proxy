@@ -1,5 +1,5 @@
 const { ipcRenderer } = require('electron');
-const { generateMCSharedSecret, uuidWithDashes, getServerStatus, getServerPublicKey, resolveMCSrvRecord, parsePingMotdObject } = require('./mc-proxy')
+const { generateMCSharedSecret, uuidWithDashes, getServerStatus, getServerPublicKey, resolveMCSrvRecord, parsePingMotdObject, chatObjectToString } = require('./mc-proxy')
 const { createCrackedSession } = require('./authenticators/base');
 const { loginMojangAccount, sessionFromAccesToken } = require('./authenticators/mojang');
 const { loginMicrosoftAccount } = require('./authenticators/microsoft');
@@ -7,6 +7,8 @@ const { redeemAlteningToken, AlteningGenerateSession } = require('./authenticato
 const { redeemEasyMCToken, generateEasyMCToken, renewEasyMCToken } = require('./authenticators/easymc')
 const { redeemMCLeakToken, MCLeakGenerateSession } = require('./authenticators/mcleak');
 const { bindMulticastClient } = require('./mc-multicast')
+const dns = require('dns');
+
 
 var getEl = document.getElementById.bind(document);
 var alteningGenerator = new AlteningGenerateSession();
@@ -34,7 +36,12 @@ var elements = {
     renew_token: getEl('renew_token_button'),
     save_token: getEl('save_token_button'),
     saved_alts_block: getEl('mc_saved_alts_block'),
-    saved_alts: getEl('mc_saved_alts')
+    saved_alts: getEl('mc_saved_alts'),
+    server_hash_block: getEl('mc_serverhash_block'),
+    server_ipv4: getEl('mc_serverip'),
+    server_hash: getEl('mc_serverhash'),
+    publickey: getEl('mc_publickey'),
+    servername: getEl('mc_servername')
 }
 
 var windowPromise = Promise.resolve();
@@ -64,6 +71,7 @@ function setAuthServer(value) {
     elements.password.value = '';
     elements.token.value = '';
     elements.saved_alts_block.style.display = value == 'saved' ? 'block' : 'none';
+    elements.server_hash_block.style.display = value == 'serverhash' ? 'block' : 'none';
     switch(value) {
     case 'saved':
         renderSavedAccounts();
@@ -77,11 +85,14 @@ function setAuthServer(value) {
         elements.renew_token.style.display = 'none';
         elements.save_token.style.display = 'none';
         return;
+    case 'serverhash':
+
+        //fallthrough
     case 'cracked':
         elements.password_block.style.display = 'none';
         elements.token_block.style.display = 'none';
         elements.name.maxLength = 16;
-        elements.name_label.innerText = 'Cracked username';
+        elements.name_label.innerText = value == 'serverhash' ? 'Username of the MC account' : 'Cracked username';
         elements.name.placeholder = 'Username for server';
         elements.credentials_block.style.display = 'block';
         elements.generate_token.style.display = 'none';
@@ -154,7 +165,7 @@ function setServerType(value) {
 var authOpen = false;
 var proxyServer;
 var session;
-var host, displayHost, port, motd;
+var host, displayHost, selectedHost, port, motd;
 var redeemedSession = {type: 'none', token: '', session: null};
 var sharedSecret = generateMCSharedSecret();
 
@@ -187,7 +198,7 @@ function startServer(session) {
 
     switch(serverType) {
     case 'host':
-        server = session.createProxyServer(host, port, null, sharedSecret);
+        server = session.createProxyServer(host, port, null, sharedSecret, selectedHost);
         server.listen(25565, '127.0.0.1', () => {
             //invalidate also stops the keepalive
             elements.server_status.innerText = 'Type: "host-only"\nIP: "localhost"\nPort: 25565\nOnline-mode: no\nDestination: ' + JSON.stringify(displayHost) + "\n" + motd + "\nUsername: " + JSON.stringify(session.name) + "\nUUID: " + JSON.stringify(uuidWithDashes(session.uuid));
@@ -201,7 +212,7 @@ function startServer(session) {
         
         break;
     case 'lan':
-        server = session.createProxyServer(host, port, null, sharedSecret);
+        server = session.createProxyServer(host, port, null, sharedSecret, selectedHost);
         server.listen(0, '0.0.0.0', () => {
             var port = server.address().port;
             elements.server_status.innerText = 'Type: "lan"\nIP: Check LAN worlds on multilayer\nPort: ' + Number(port) + "\nOnline-mode: no\nDestination: " + JSON.stringify(displayHost) + "\n" + motd  + "\nUsername: " + JSON.stringify(session.name) + "\nUUID: " + JSON.stringify(uuidWithDashes(session.uuid));
@@ -218,7 +229,7 @@ function startServer(session) {
         break;
     case 'public':
         var whitelist = String(elements.whitelist.value).trim().split(',').map(x => x.trim()).filter(x => x);
-        server = session.createProxyServer(host, port, whitelist, sharedSecret);
+        server = session.createProxyServer(host, port, whitelist, sharedSecret, selectedHost);
         server.listen(bind_port, bind_address, () => { 
             elements.server_status.innerText = 'Type: "public"\nIP: ' + JSON.stringify(bind_address) + "\nPort: " + Number(port) + "\nOnline-mode: yes\nWhitelist: " + whitelist.map(x => JSON.stringify(x)).join(', ') + "\nDestination: " + JSON.stringify(displayHost) + "\n" + motd  + "\nUsername: " + JSON.stringify(session.name) + "\nUUID: " + JSON.stringify(uuidWithDashes(session.uuid));
             addSecret();
@@ -229,7 +240,7 @@ function startServer(session) {
         server.type = 'public';
         break;
     case 'cracked':
-        server = session.createProxyServer(host, port, null, sharedSecret);
+        server = session.createProxyServer(host, port, null, sharedSecret, selectedHost);
         server.listen(bind_port, bind_address, () => {  
             elements.server_status.innerText = 'Type: "public"\nIP: ' + JSON.stringify(bind_address) + "\nPort: " + Number(port) + "\nOnline-mode: no\nDestination: " + JSON.stringify(displayHost) + "\n" + motd  + "\nUsername: " + JSON.stringify(session.name) + "\nUUID: " + JSON.stringify(uuidWithDashes(session.uuid));
             addSecret();
@@ -273,6 +284,9 @@ function loadAccountSession() {
         break;
     case 'cracked':
         promise = Promise.resolve(createCrackedSession(elements.name.value));
+        break;
+    case 'serverhash':
+        promise = Promise.reject("Serverhash does not have a session");
         break;
     case 'altening':
         if(redeemedSession.type == 'altening' && redeemedSession.token == elements.name.value) {
@@ -327,6 +341,10 @@ function onButtonClick() {
         session = null;
         elements.server_status.innerText = '';
         elements.button.innerText = 'Start';
+        elements.publickey.value = '';
+        elements.servername.value = '';
+        elements.server_hash.value = '';
+        elements.server_ipv4.value = '';
     } else {
         host = elements.host.value;
         displayHost = host;
@@ -346,6 +364,7 @@ function onButtonClick() {
             resolveMCSrvRecord(host).then(h => {
                 host = h.name || host;
                 port = h.port || port;
+                selectedHost = host;
                 return getServerStatus({ host, port });
             }).catch(ex => {
                 console.error(ex);
@@ -356,6 +375,46 @@ function onButtonClick() {
                 if(elements.authentication_type.value == 'microsoft') {
                     ipcRenderer.send('microsoft-auth');
                     return;
+                } else if(elements.authentication_type.value == 'serverhash') {
+                    if(res.data.version.protocol == 65535) throw new Error("Cannot ping server, to get serverhash");
+                    var username = elements.name.value;
+                    if(username == '') throw new Error("Cannot join a online server with an empty name");
+
+                    return (new Promise((resolve, reject) => {
+                        dns.lookup(host, {family: 4}, (err, address, family) => {
+                            try {
+                                if(err) throw err;
+                                if(family !== 4) throw new Error("Invalid IP family " + family);
+                                host = address;
+                                elements.server_ipv4.value = host;
+                                resolve();
+                            } catch(ex) {
+                                reject(ex);
+                            }
+                        })
+                    })).then(() => getServerPublicKey({
+                        protocolVersion: res.data.version.protocol,
+                        host,
+                        port,
+                        displayHost: selectedHost,
+                        username
+                    })).then(res => {
+                        switch(res.status) {
+                        case 'online':
+                            return sharedSecret.then(secret => {
+                                elements.publickey.value = res.publicKey.toString('base64');
+                                elements.servername.value = res.serverName;
+                                elements.server_hash.value = res.createHash(secret);
+                                return startServer(createCrackedSession(username));
+                            });
+                        case 'cracked':
+                            throw new Error("This is a cracked server, use cracked instead");
+                        case 'disconnect':
+                            throw new Error("Got disconnected: " + chatObjectToString(res.message));
+                        default:
+                            throw new Error("Unknown status: " + res.status);
+                        }
+                    }).finally(() => authOpen = false);
                 }
                 return loadAccountSession().then(session => startServer(session)).catch(ex => { console.error(ex); alert(ex.message); elements.button.innerText = 'Start'; }).finally(() => {
                     authOpen = false;

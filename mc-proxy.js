@@ -120,12 +120,12 @@ class ReadableDataParser extends BaseDataParser {
             var bytes;
             var firstTry = true;
             while(1) {
-                if(this.hasEnded) {
+                /*if(this.hasEnded) {
                     if(canEnd) return null;
                     throw new Error("Read while stream has ended");
-                }
+                }*/
                 var nbytes = this.stream.read(size - (bytes ? bytes.length : 0));
-                if(!nbytes && !firstTry) {
+                if(!nbytes && (!firstTry || this.hasEnded)) {
                     if(canEnd) return null;
                     throw new Error("Read while stream has ended");
                 }
@@ -1708,7 +1708,7 @@ async function getServerPublicKey({ protocolVersion, host, port, displayHost, di
             if(reader.index !== index + length) throw new Error("index does not match with length for encryption request");
             var serverNameBuff = Buffer.from(serverName, 'utf-8');
             response = {status: 'online', publicKey, verifyToken, serverName, createHash(sharedSecret) {
-                return mcHexDigest(crypto.createHash('sha1').update(serverNameBuff).update(sharedSecret).update(pubKey).digest());
+                return mcHexDigest(crypto.createHash('sha1').update(serverNameBuff).update(sharedSecret).update(publicKey).digest());
             }};
         }
         await writer.flush();
