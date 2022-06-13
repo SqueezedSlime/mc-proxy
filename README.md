@@ -1,4 +1,12 @@
-This minecraft proxy proxies client connections (this project is NOT meaned for a server (network)), authenticate with different accounts, and forward them to a server. You can even choose other authentication servers than Mojang or Microsoft, including cracked without a cracked launcher, authentication with a Mojang JWT access token, with a MCLeaks, TheAltening or EasyMC ALT TOKEN without installing or redirecting any authentication requests to untrusted servers (now you can use those services safely.).
+mc-proxy proxies client connections under a different minecraft account. This account can be your alt account or an alt account from three major alt sites.
+Its essentially a Man in the middle proxy. It works because the minecraft client does not verify the server (with for example a certificate). Only the server will verify a minecraft user using the mojang authentication server as authority.
+The application is not meant to be implemented at a minecraft server.
+
+This application major use cases:
+1. Sharing your alt account with your friend, without giving him the passwords, using this program.
+2. Using alts from the 3 major alt websites without downloading (potential malicious) third party launchers. 
+
+And the best thing is that you don't have to modify anything of minecraft. You can even run the proxy server on an other machine that does not even have minecraft (or even java).
 
 So this means that you can now play with those accounts without a new launcher or mods. The entire project is open source and licensed under MIT.
 
