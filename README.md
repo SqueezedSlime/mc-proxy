@@ -83,7 +83,7 @@ There are three ways to install it (see https://github.com/SqueezedSlime/mc-prox
 
 # How safe is it to use alts from MCLeaks, the altening or EasyMC
 
-Before you are going to use those alts, you need to know one thing for sure: the alts are never permanent. If their alts are malicious, it is not their alts, it is the (unofficial) launchers which even be made by other users.
+Before you are going to use those alts, you need to know one thing for sure: the alts are never permanent. If their alts are malicious, it is not their alts, it is the (unofficial) launchers which even can be made by other users.
 Most of those launcher install self-signed certificates of the mojang authentication sites and redirects all connections from your browser to their sites. This means that also your non-alt logins are redirected to their sites.
 Even if you have switched to mojang authentication in some authenticators.
 
