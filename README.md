@@ -81,6 +81,24 @@ There are three ways to install it (see https://github.com/SqueezedSlime/mc-prox
 
 ![Saved alts](screenshots/saving-alts.png.PNG?raw=true "Saved alts on the proxy")
 
+# How safe is it to use alts from MCLeaks, the altening or EasyMC
+
+Before you are going to use those alts, you need to know one thing for sure: the alts are never permanent. If their alts are malicious, it is not their alts, it is the (unofficial) launchers which even be made by other users.
+Most of those launcher install self-signed certificates of the mojang authentication sites and redirects all connections from your browser to their sites. This means that also your non-alt logins are redirected to their sites.
+Even if you have switched to mojang authentication in some authenticators.
+
+On the contrary, this project does never redirect any authentication request. If you start minecraft, cracked or not, you just join the proxy server instead of the alt server. Its completely fine to join the proxy server with your own account.
+The proxy server does the authentication with the alt server (in a secure way), then its sends an update packet to your client to change the UUID and name for the player for the server and finally it just forwards any data from the server to you and vice versa (without modifications).
+
+# Saving alts
+
+It is very easy to save alts. Especially for altening alts because they do not support renewing tokens and if you want to save the alts you need to pay.
+The alts are saved as long as mc-proxy remains open. It does this by refreshing the tokens every 5 minutes. You can have as many as saved alts you desire. If you also store the tokens somewhere else, you might refresh the tokens later if you closed the proxy program (not possible for altening alts).
+
+# Creating tokens inside mc-proxy
+
+You can generate your own tokens inside the mc-proxy program without using their sites. The proxy program does not open their sites and instead uses ajax/api requests to the alt websites. You might be prompted for recaptcha if you try to generate alts or if you try to renew tokens.
+
 # About the proxy
 
 Play using ALTS on your own risk, you do not own those accounts and they can be removed anytime. To get a legit ALT, buy one from minecraft.net (on all other sites, your alt is never 100% permanent). Anyway playing with these alts can be still fun.
