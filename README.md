@@ -2,7 +2,7 @@ mc-proxy proxies client connections under a different minecraft account. This ac
 Its essentially a Man in the middle proxy. It works because the minecraft client does not verify the server (with for example a certificate). Only the server will verify a minecraft user using the mojang authentication server as authority.
 The application is not meant to be implemented at a minecraft server.
 
-This application major use cases:
+This application has two major use cases:
 1. Sharing your alt account with your friend, without giving him the passwords, using this program.
 2. Using alts from the 3 major alt websites without downloading (potential malicious) third party launchers. 
 
