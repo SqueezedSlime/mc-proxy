@@ -3,7 +3,8 @@ const net = require('net');
 const crypto = require('crypto');
 const https = require('https');
 const dns = require('dns');
-const { Duplex } = require('stream');
+const { createInflate, deflate } = require('zlib');
+const { Duplex, Readable, Writable } = require('stream');
 
 /**
  * Base class for a reader/writer
@@ -142,7 +143,7 @@ class ReadableDataParser extends BaseDataParser {
 
     /**
      * Read a single byte
-     * @returns {number}
+     * @returns {Promise<number>}
      */
     readByte() {
         return this.readBytes(1).then(buff => buff ? buff[0] : null);
@@ -724,6 +725,28 @@ function createMCDechiperStream(sharedSecret) {
     }
 }
 
+function createReadableFromBuffer(buffer) {
+    var str = new Readable();
+    str.push(buffer);
+    str.push(null);
+    return str;
+}
+
+function createWritableToBuffer() {
+    var ch = [];
+    return [new Writable({
+        write(chunk, encoding, callback) {
+            chunk = encoding === 'buffer' ? chunk : Buffer.from(chunk, encoding);
+            ch.push(chunk);
+            callback();
+        },
+        writev(chunks, callback) {
+            ch.push(...chunks.map(x => x.encoding === 'buffer' ? x.chunk : Buffer.from(x.chunk, x.encoding)));
+            callback();
+        }
+    }), () => Buffer.concat(ch)];
+}
+
 
 /**
  * 
@@ -748,12 +771,14 @@ function createMCDechiperStream(sharedSecret) {
  *         getDisconnectMessage: ('auth-failed' | 'user-denied' | 'cracked-not-allowed' | 'no-credentials' | 'login-failed' | 'connection-failed') => Promise<string | object | null> | string | object | null,
  *         getUser?: () => Promise<{
  *             username: string,
+ *             uuid: string,
  *             sharedSecret?: Buffer,
  *             crackedLogin: () => Promise<boolean | null> | boolean | null,
  *             getCredentials: () => Promise<{ accessToken: string, uuid: string }> | { accessToken: string, uuid: string } | null,
  *             joinServer?: (serverId: string) => Promise<boolean | null> | false | null
  *         } | null> | {
  *             username: string,
+ *             uuid: string,
  *             sharedSecret?: Buffer,
  *             crackedLogin: () => Promise<boolean | null> | boolean | null,
  *             getCredentials: () => Promise<{ accessToken: string, uuid: string }> | { accessToken: string, uuid: string } | null,
@@ -844,7 +869,8 @@ function createProxyServer(getServer) {
             /** @type {WritableDataParser} */
             var socketWriter = null;
             var encryptionStage = 0;
-            var compression = false;
+            var playState = false;
+            var compression = -1;
             var loginStatus = null;
             var username;
             var userID;
@@ -857,26 +883,225 @@ function createProxyServer(getServer) {
             var chiperServer;
             var dechiperServer;
 
-            function pipeStreams() {
-                if(chiperClient && chiperServer) {
-                    dechiperClient.pipe(chiperServer);
-                    dechiperServer.pipe(chiperClient);
-                } else if(chiperClient && !chiperServer) {
-                    dechiperClient.pipe(socket);
-                    socket.pipe(chiperClient);
-                } else if(!chiperClient && chiperServer) {
-                    cl.pipe(chiperServer);
-                    dechiperServer.pipe(cl);
-                } else {
-                    cl.pipe(socket);
-                    socket.pipe(cl);
+            async function pipeStreams() {
+                var onTerminate = null;
+                var terminated = false;
+                function terminate(ex) {
+                    if(terminated)
+                        return;
+                    terminated = true;
+                    var err = ex || new Error("Invalid data from client/server");
+                    try {cl.destroy(err);} catch(_) {}
+                    try {socket.destroy(err);} catch(_) {}
+                    if(chiperServer)
+                        try {chiperServer.destroy(err);} catch(_) {}
+                    if(chiperClient)
+                        try {chiperClient.destroy(err);} catch(_) {}
+                    if(dechiperServer)
+                        try {dechiperServer.destroy(err);} catch(_) {}
+                    if(dechiperClient)
+                        try {dechiperClient.destroy(err);} catch(_) {}
+                    if(onTerminate)
+                        onTerminate(ex);
+                    throw err;
                 }
-                if(chiperClient) chiperClient.resume();
-                if(dechiperClient) dechiperClient.resume();
-                if(chiperServer) chiperServer.resume();
-                if(dechiperServer) dechiperServer.resume();
-                cl.resume();
-                socket.resume();
+
+                cl.on('error', ex => terminate(ex));
+                socket.on('error', ex => terminate(ex));
+                if(chiperServer) 
+                    chiperServer.on('error', ex => terminate(ex));
+                if(chiperClient)
+                    chiperClient.on('error', ex => terminate(ex));
+                if(dechiperServer) 
+                    dechiperServer.on('error', ex => terminate(ex));
+                if(dechiperClient)
+                    dechiperClient.on('error', ex => terminate(ex));
+                
+                function createInflateFromBuffer(buffer) {
+                    var str = createReadableFromBuffer(buffer);
+                    var inf = createInflate();
+                    str.on('error', ex => { try {inf.destroy(ex); }catch(_){} });
+                    inf.on('error', ex => { try {str.destroy(ex); }catch(_){} });
+                    str.pipe(inf);
+                    return inf;
+                }
+
+                async function readPacket(reader) {
+                    var compressedLength = await reader.readVarInt();
+                    var index = reader.index;
+
+                    if(compressedLength > 2097151 || compressedLength < 1)
+                        return terminate();
+                    var packetLength = (compression >= 0) ? await reader.readVarInt() : 0;
+                    var hasCompression = packetLength > 0;
+                    if(!hasCompression)
+                        packetLength = compressedLength;
+                    if(packetLength > 2097151 || packetLength < 1)
+                        return terminate();
+                    var originalData = await reader.readBytes(compressedLength - (reader.index - index));
+                    var readStream = new ReadableDataParser(hasCompression ? createInflateFromBuffer(originalData) : createReadableFromBuffer(originalData));  
+                    readStream.stream.on('error', () => {}); //errors should be handled by the read operation.
+                    return { packetLength, hasCompression, originalData, readStream }
+                }
+
+                async function processServer() {
+                    if(!playState) {
+                        while(!playState) {
+                            //we must process the packets until we reach play state. from that moment we can just pipe the streams
+                            //this must be done because of 2 things: 1. set compression 2. packet processing in processClient() is different when we are in state play
+                            var { packetLength, hasCompression, originalData, readStream } = await readPacket(socketReader);
+                            var packetID = await readStream.readVarInt();
+                            var canCompress = compression >= 0;
+                            if(packetID == 0x03) {
+                                compression = await readStream.readVarInt();
+                            } else if(packetID == 0x02) {
+                                playState = true;
+                            }
+                            if(hasCompression) {
+                                var buff1 = writer.createCheckpoint(5);
+                                var buff2 = writer.createCheckpoint(5);
+                                buff2.writeVarInt(packetLength);
+                                buff1.writeVarInt(buff2.length + originalData.length);
+                                buff1.appendPending();
+                                buff2.appendPending();
+                                writer.writeBytes(originalData);
+                            } else if(canCompress) {
+                                var buff = writer.createBuffer(6);
+                                buff.writeVarInt(originalData.length + 1);
+                                buff.writeByte(0);
+                                buff.appendPending();                        
+                                writer.writeBytes(originalData);
+                            } else {
+                                var buff = writer.createBuffer();
+                                buff.writeVarInt(originalData.length);
+                                buff.appendPending();
+                                writer.writeBytes(originalData);
+                            }
+                        }
+
+                        await writer.flush();
+                        await socketReader.streamReady();
+                        await writer.streamReady();
+                    }
+
+                    socketReader = null;
+                    writer = null;
+                    if(dechiperServer && chiperClient) {
+                        dechiperServer.pipe(chiperClient);
+                    } else if(dechiperServer) {
+                        dechiperServer.pipe(cl);
+                    } else if(chiperClient) {
+                        socket.pipe(chiperClient);
+                    } else {
+                        socket.pipe(cl);
+                    }
+
+                    return new Promise(() => {});
+                }
+                
+                async function processClient() {
+                    while(1) {
+                        var { packetLength, hasCompression, originalData, readStream } = await readPacket(reader);
+                        var packetID = await readStream.readVarInt();
+                        /** @type {WritableDataParser} */
+                        var responseStream = null;
+                        /** @type {WritableDataBuffer} */
+                        var response = null;
+                        var getResponseBytes = null;
+                        var ended = false;
+                        function createResponse() {
+                            if(responseStream)
+                                return;
+                            var arr = createWritableToBuffer();
+                            responseStream = new WritableDataParser(arr[0]);
+                            response = responseStream.createCheckpoint(packetLength);
+                            getResponseBytes = arr[1];
+                            arr[0].on('error', ex => !ended && terminate(ex));
+                            response.writeVarInt(packetID);
+                        }
+                        if(playState && packetID == 0x04) {
+                            var command = await readStream.readString();
+                            var timestamp = await readStream.readLong();
+                            await readStream.readLong(); //salt
+                            var arrlength = await readStream.readVarInt();
+                            for(var i = 0; i < arrlength; i++) {
+                                await readStream.readString(); //argument name
+                                await readStream.readBytes(await readStream.readVarInt()); //byte array length + byte array
+                            }
+                            await readStream.readByte(); //signed preview
+                            createResponse();
+                            response.writeString(command);
+                            response.writeLong(timestamp);
+                            response.writeLong(0n);
+                            response.writeVarInt(0);
+                            response.writeByte(0);
+                            response.writeByte(0);
+                            response.writeByte(0);
+                            response.push();
+                        } else if(playState && packetID == 0x05) {
+                            var message = await readStream.readString();
+                            var timestamp = await readStream.readLong();
+                            await readStream.readLong(); //salt
+                            await readStream.readBytes(await readStream.readVarInt()); //signate length and signature
+                            await readStream.readByte();  //signed preview
+                            createResponse();
+                            response.writeString(message);
+                            response.writeLong(timestamp);
+                            response.writeLong(0n);
+                            response.writeVarInt(0);
+                            response.writeByte(0);
+                            response.writeByte(0);
+                            response.writeByte(0);
+                            response.push();
+                        }
+                        originalData = getResponseBytes ? await new Promise((resolve, reject) => {
+                            (async () => {
+                                await responseStream.flush();
+                                await responseStream.streamReady();
+                            })().then(() => {
+                                responseStream.stream.once('error', ex => reject(ex));
+                                responseStream.stream.once('finish', () => {
+                                    ended = true;
+                                    var bytes = getResponseBytes();
+                                    hasCompression = false;
+                                    if(compression >= 0 && bytes.length >= compression) {
+                                        hasCompression = true;
+                                        packetLength = bytes.length;
+                                        deflate(bytes, (ex, res) => ex ? reject(ex) : resolve(res));
+                                    } else 
+                                        resolve(bytes);
+                                });
+                                responseStream.stream.end();
+                            }).catch(ex => reject(ex));
+                        }) : originalData;
+                        if(hasCompression) {
+                            var buff1 = socketWriter.createCheckpoint(5);
+                            var buff2 = socketWriter.createCheckpoint(5);
+                            buff2.writeVarInt(packetLength);
+                            buff1.writeVarInt(buff2.length + originalData.length);
+                            buff1.appendPending();
+                            buff2.appendPending();
+                            socketWriter.writeBytes(originalData);
+                        } else if(compression >= 0) {
+                            var buff = socketWriter.createBuffer(6);
+                            buff.writeVarInt(originalData.length + 1);
+                            buff.writeByte(0);
+                            buff.appendPending();                        
+                            socketWriter.writeBytes(originalData);
+                        } else {
+                            var buff = socketWriter.createBuffer();
+                            buff.writeVarInt(originalData.length);
+                            buff.appendPending();
+                            socketWriter.writeBytes(originalData);
+                        }
+                        await socketWriter.flush();
+                    }
+                }
+
+                return Promise.race([processClient(), processServer(), new Promise((_, rej) => onTerminate = rej)]).catch(ex => {
+                    terminate(ex);
+                    throw ex;
+                });
             }
 
             function toUTF16Be(str) {
@@ -964,6 +1189,24 @@ function createProxyServer(getServer) {
                                 buff2.writeVarInt(0);
                                 buff2.writeVarInt(userBuff.length);
                                 buff2.writeBytes(userBuff);
+                                buff2.writeByte(0); //no secure chat system
+                                var hex = null;
+                                try {
+                                    var uuid = '';
+                                    if(user.uuid)
+                                        uuid = uuidWithoutDashes(user.uuid);
+                                    if(uuid == "00000000000000000000000000000000")
+                                        uuid = '';
+                                    if(uuid)
+                                        hex = Buffer.from(uuid, 'hex');
+                                } catch(ex) {
+                                    hex = null;
+                                }
+                                if(hex && hex.length == 16) {
+                                    buff2.writeByte(1);
+                                    buff2.writeBytes(hex);
+                                } else
+                                    buff2.writeByte(0);
                                 buff1.writeVarInt(buff2.length);
                                 buff1.appendPending();
                                 await buff2.push();
@@ -998,25 +1241,47 @@ function createProxyServer(getServer) {
                                 } else if(state != 2) {
                                     throw new Error("Unknown state: " + state);
                                 }
+                                //weird plugin requests/responses without encryption...
                                 if(id == 0x04) {
+                                    //forward plugin request to client
                                     if(length > 524288) throw new RangeError("Packet too big for plugin");
                                     var messageID = await socketReader.readVarInt();
-                                    await socketReader.readString(32767);
-                                    if(reader.index - index > length) throw new Error("Unexpected eof in packet");
-                                    await socketReader.readBytes(length - (reader.index - index));
+                                    var name = await socketReader.readString(32767);
+                                    if(socketReader.index - index > length) throw new Error("Unexpected eof in packet");
+                                    var data = await socketReader.readBytes(length - (socketReader.index - index));
                                     var buff1 = writer.createCheckpoint(5);
-                                    var buff2 = writer.createCheckpoint(5);
-                                    buff2.writeVarInt(0x02);
+                                    var buff2 = writer.createCheckpoint(5 + name.length + data.length);
+                                    buff2.writeVarInt(0x04);
                                     buff2.writeVarInt(messageID);
-                                    buff2.writeByte(0x0);
+                                    buff2.writeString(name);
+                                    buff2.writeBytes(data);
+                                    buff1.writeVarInt(buff2.length);
+                                    buff1.appendPending();
+                                    await buff2.push();
+                                    
+                                    //forward incomming plugin response to server
+                                    reader.canEnd = true;
+                                    var length2 = await reader.readVarInt();
+                                    reader.canEnd = false;
+                                    if(length2 < 1) throw new RangeError("EOF for plugin response");
+                                    var index2 = reader.index;
+                                    var id2 = await reader.readVarInt();
+                                    if(id2 != 0x02) throw new RangeError("Expected a plugin response");
+                                    var responseBytes = await reader.readBytes(length2 - (reader.index - index2));
+                                    buff1 = socketWriter.createCheckpoint(5);
+                                    buff2 = socketWriter.createCheckpoint(2 + responseBytes.length);
+                                    buff2.writeVarInt(0x02);
+                                    buff2.writeBytes(responseBytes);
                                     buff1.writeVarInt(buff2.length);
                                     buff1.appendPending();
                                     await buff2.push();
                                     continue;
                                 }
                                 if(id == 0x00 || id == 0x03 || id == 0x02) {
+                                    //0x00: the client is disconnected/kicked
+                                    //(0x03 || 0x02) its seems that we receive login success or compression. meaning that the server is cracked
                                     if(length > 65535) throw new TypeError("Packet too big");
-                                    if(user.crackedLogin && !(await user.crackedLogin())) {
+                                    if(id != 0x00 && (user.crackedLogin && !(await user.crackedLogin()))) {
                                         try{socket.end()} catch(_){}
                                         var disconnectBuff = Buffer.from(JSON.stringify((await serverInfo.getDisconnectMessage('cracked-not-allowed')) || {text: 'Remote server is in offline mode, not allowed'}), 'utf-8');
                                         var buff1 = writer.createCheckpoint(5);
@@ -1033,6 +1298,10 @@ function createProxyServer(getServer) {
                                     var buff1 = await writer.createCheckpoint(5);
                                     var buff2 = await writer.createCheckpoint(4 + length);
                                     buff2.writeVarInt(id);
+                                    if(id == 0x03) {
+                                        compression = socketReader.readVarInt();
+                                        buff2.writeVarInt(compression);
+                                    }
                                     buff2.writeBytes(await socketReader.readBytes(length - (socketReader.index - index)));
                                     buff1.writeVarInt(buff2.length);
                                     buff1.appendPending();
@@ -1040,18 +1309,12 @@ function createProxyServer(getServer) {
                                     await writer.flush();
                                     await writer.streamReady();
                                     await reader.streamReady();
+                                    playState = id == 0x02;
                                     if(id == 0x03 || id == 0x02) {
                                         await socketWriter.flush();
                                         await socketWriter.streamReady();
                                         await socketReader.streamReady();
-                                        writer = null;
-                                        reader = null;
-                                        socketWriter = null;
-                                        socketReader = null;
-                                        pipeStreams();
-                                        await new Promise((callback, onError) => {
-                                            socket.on('error', onError);
-                                        });
+                                        await pipeStreams();
                                         return;
                                     } else {
                                         try{socket.end();}catch(_){}
@@ -1149,6 +1412,7 @@ function createProxyServer(getServer) {
                                 buff2.writeVarInt(0x01);
                                 buff2.writeVarInt(encryptedSecret.length);
                                 buff2.writeBytes(encryptedSecret);
+                                buff2.writeVarInt(0x01);
                                 buff2.writeVarInt(encryptedVerifyToken.length);
                                 buff2.writeBytes(encryptedVerifyToken);
                                 buff1.writeVarInt(buff2.length);
@@ -1160,32 +1424,16 @@ function createProxyServer(getServer) {
                                 await socketWriter.flush();
                                 await socketReader.streamReady();
                                 await socketWriter.streamReady();
-                                reader = null;
-                                writer = null;
                                 socketReader = null;
                                 socketWriter = null;
                                 chiperServer = createMCChiperStream(sharedSecret);
                                 dechiperServer = createMCDechiperStream(sharedSecret);
                                 socket.emit('encryption', { chiper: chiperServer, dechiper: dechiperServer });
-                                chiperServer.on('error', ex => {
-                                    try{dechiperServer.destroy(ex)} catch(_) {}
-                                    try{socket.destroy(ex)} catch(_) {}
-                                });
-                                dechiperServer.on('error', ex => {
-                                    try{chiperServer.destroy(ex)} catch(_) {}
-                                    try{socket.destroy(ex)} catch(_) {}
-                                });
-                                socket.on('error', ex => {
-                                    try{chiperServer.destroy(ex)} catch(_) {}
-                                    try{dechiperServer.destroy(ex)} catch(_) {}
-                                });
                                 socket.pipe(dechiperServer);
                                 chiperServer.pipe(socket);
-                                pipeStreams();
-                                await new Promise((callback, onError) => {
-                                    socket.on('error', onError);
-                                    dechiperServer.on('end', () => callback());
-                                });
+                                socketReader = new ReadableDataParser(dechiperServer);
+                                socketWriter = new WritableDataParser(chiperServer);
+                                await pipeStreams();
                                 return;
                             }
                         } catch(ex) {
@@ -1353,6 +1601,7 @@ function createProxyServer(getServer) {
                 if(encryptionStage == 1) {
                     if(id != 0) throw new TypeError("Invalid ID for login start");
                     username = await reader.readString(16);
+                    await reader.readBytes(length - (reader.index - index));
                     if(reader.index != index + length) throw new TypeError("Invalide EOF of packet");
                     serverInfo = await getServer({state: 'login', legacy: false, host: serverData.host, port: serverData.port, version: serverData.version, username, remoteClient: cl, proxyServer});
                     if(!serverInfo.displayHost) serverInfo.displayHost = serverInfo.host;
@@ -1387,6 +1636,8 @@ function createProxyServer(getServer) {
                     continue;
                 } else if(encryptionStage == 2) {
                     if(id == 0x02) {
+                        //plugin response???
+                        //we do not even have encryption. ignore this
                         await reader.readBytes(length - (reader.index - index));
                         continue;
                     }
@@ -1394,20 +1645,24 @@ function createProxyServer(getServer) {
                     var sharedSecretLen = await reader.readVarInt();
                     if(sharedSecretLen < 0 || sharedSecretLen > 256) throw new RangeError("Too big shared secret");
                     var encryptedSharedSecret = await reader.readBytes(sharedSecretLen);
-                    var verifyTokenLen = await reader.readVarInt();
-                    if(verifyTokenLen < 0 || verifyTokenLen > 256) throw new TypeError("Too big verify token");
-                    var clientVerifyToken = await reader.readBytes(verifyTokenLen);
+                    var hasVerifyToken = await reader.readByte();
                     var { publicKey, privateKey } = await keyPromise;
                     var decryptKey = crypto.createPrivateKey({
                         key: privateKey,
                         format: 'der',
                         type: 'pkcs8'
-                    })
-                    var toVerify = crypto.privateDecrypt({
-                        key: decryptKey,
-                        padding: crypto.constants.RSA_PKCS1_PADDING
-                    }, clientVerifyToken);
-                    if(toVerify.length != verifyToken.length || !crypto.timingSafeEqual(toVerify, verifyToken)) throw new TypeError("verify token does not match");
+                    });
+                    if(hasVerifyToken > 0) {
+                        var verifyTokenLen = await reader.readVarInt();
+                        if(verifyTokenLen < 0 || verifyTokenLen > 256) throw new TypeError("Too big verify token");
+                        var clientVerifyToken = await reader.readBytes(verifyTokenLen);
+                        var toVerify = crypto.privateDecrypt({
+                            key: decryptKey,
+                            padding: crypto.constants.RSA_PKCS1_PADDING
+                        }, clientVerifyToken);
+                        if(toVerify.length != verifyToken.length || !crypto.timingSafeEqual(toVerify, verifyToken)) throw new TypeError("verify token does not match");
+                    }
+                    await reader.readBytes(length - (reader.index - index));
                     var sharedSecret = crypto.privateDecrypt({
                         key: decryptKey,
                         padding: crypto.constants.RSA_PKCS1_PADDING

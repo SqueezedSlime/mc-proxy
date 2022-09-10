@@ -319,6 +319,7 @@ function createSessionProxyServer(options) {
             var sharedSecret = (await res.getSecret()) || undefined;
             return {
                 username: session.name,
+                uuid: session.uuid,
                 joinServer: session.signServerHash.bind(session),
                 sharedSecret
             }
